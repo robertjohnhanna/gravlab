@@ -70,7 +70,7 @@ right. (On a phone the canvas becomes the hero and the panels stack below.)
   when **Snap** is on), **Delete** removes it.
 - Add masses from the palette; tune every parameter in the inspector; toggle
   visibility or delete from the object list.
-- **Launch** a body from the ⊕ probe (drag the red tip to aim), or give bodies a
+- **Launch** a body from the ⊕ probe (drag the amber arrow tip to aim), or give bodies a
   velocity in the inspector and press **Play** — every mass then moves under
   mutual gravity. **Reset** restores the placed layout.
 

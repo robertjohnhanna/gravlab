@@ -181,7 +181,8 @@ export class Scene {
 }
 
 // True if world point q lies inside the solid body of source s.
-function bodyContains(s, q) {
+// (Point masses, rods and rings have no interior volume and never contain.)
+export function bodyContains(s, q) {
   if (s.type === 'sphere' || s.type === 'shell')
     return P.vlen(P.vsub(q, s._origin)) < km(s.dia) / 2;
   if (s.type === 'box') {

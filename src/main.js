@@ -1,6 +1,6 @@
 // main.js — app glue: scene management, UI panels, interaction, orbit sim.
 import * as P from './physics.js';
-import { Scene, defaultSource, buildSource, sourceExtent, massOf, BODIES, BODY_DIA } from './sources.js';
+import { Scene, defaultSource, buildSource, sourceExtent, massOf, bodyContains, BODIES, BODY_DIA } from './sources.js';
 import { Renderer, View, viridis } from './render.js';
 
 const scene = new Scene();
@@ -224,7 +224,12 @@ function drawParticles() {
 // source / projectile they belong to, so integrating mutates them in place.
 function simBodies() {
   const bodies = [];
-  for (const s of scene.sources) if (s.visible) bodies.push({ x: s._origin, v: s._v, mass: s.mass, rad: radiusOf(s) });
+  for (const s of scene.sources) if (s.visible) {
+    // A source added while the sim is already running hasn't been through
+    // initSim — give it its runtime velocity/mass snapshot on first use.
+    if (!s._v) { s._v = (s.vel || [0, 0, 0]).map((c) => c * 1000); s._mass0 = s.mass; }
+    bodies.push({ x: s._origin, v: s._v, mass: s.mass, rad: radiusOf(s) });
+  }
   for (const p of particles) if (p.alive) bodies.push({ x: p.x, v: p.v, mass: p.mass, rad: p.rad });
   return bodies;
 }
@@ -262,7 +267,19 @@ function simStep() {
       if (!p.alive) continue;
       const last = p.trail[p.trail.length - 1];
       if (!last || P.vlen(P.vsub(p.x, last)) > trailGap) p.trail.push(p.x.slice());
-      for (const s of srcs) if (P.vlen(P.vsub(p.x, s._origin)) < radiusOf(s) + p.rad) { absorb(s, p); break; }   // impact
+      // Impact: only when the projectile actually enters a solid body (a hoop
+      // or a thin disc can be flown through; point masses and rods are ideal).
+      for (const s of srcs) if (bodyContains(s, p.x)) {
+        absorb(s, p);
+        // Keep this frame's body list consistent: drop the dead projectile and
+        // give the struck body its new mass, so the remaining sub-steps don't
+        // double-count the absorbed mass.
+        const pi = bodies.findIndex((b) => b.x === p.x);
+        if (pi >= 0) bodies.splice(pi, 1);
+        const si = bodies.findIndex((b) => b.x === s._origin);
+        if (si >= 0) bodies[si].mass = s.mass;
+        break;
+      }
     }
   }
   const com = comOf(bodies);
@@ -282,7 +299,9 @@ function simStep() {
 // impact, as in a real collision). The projectile stops (is removed).
 function absorb(s, p) {
   const M = s.mass, m = p.mass, tot = M + m || 1;
-  s._v = [(M * s._v[0] + m * p.v[0]) / tot, (M * s._v[1] + m * p.v[1]) / tot, (M * s._v[2] + m * p.v[2]) / tot];
+  // Mutate s._v in place — this frame's body list shares the array by reference.
+  const nv = [(M * s._v[0] + m * p.v[0]) / tot, (M * s._v[1] + m * p.v[1]) / tot, (M * s._v[2] + m * p.v[2]) / tot];
+  s._v[0] = nv[0]; s._v[1] = nv[1]; s._v[2] = nv[2];
   s.mass = tot;
   if (s._rings) { const f = tot / (M || 1); for (const r of s._rings) r.m *= f; }   // keep the field in sync without moving _origin
   p.alive = false;
@@ -692,7 +711,7 @@ function launchParticle() {
   if (!simInited) initSim();
   const speed = (Math.abs(parseFloat(document.getElementById('pSpeed').value)) || 5) * 1000;   // km/s -> m/s
   const mass = Math.max(0, parseFloat(document.getElementById('pMass').value)) || 1;            // kg
-  // Launch from the field-probe pin, along the red shooter aim (which stays
+  // Launch from the field-probe pin, along the amber aim arrow (which stays
   // where the user turned it). Falls back to the view edge when unset.
   const pos = probe ? probe.slice() : view.worldFromUV(view.center[0] - view.spanU * 0.42, view.center[1]);
   const dir = [0, 0, 0]; dir[view.uAxis] = aimDir[0]; dir[view.vAxis] = aimDir[1];
@@ -759,7 +778,7 @@ const presets = {
     scene.sources = [];
     const a = defaultSource('sphere'); a.name = 'Star A'; a.mass = 4e24; a.dia = 12000; a.pos = [-30000, 0, 0];
     const b = defaultSource('sphere'); b.name = 'Star B'; b.mass = 2e24; b.dia = 9000; b.pos = [30000, 0, 0];
-    a.vel = [0, 0, 0.861]; b.vel = [0, 0, -1.721];       // km/s: m₁v₁ = m₂v₂, opposite, ⟂ separation
+    a.vel = [0, 0, 0.861]; b.vel = [0, 0, -1.722];       // km/s: m₁v₁ = m₂v₂, opposite, ⟂ separation
     scene.add(a); scene.add(b); view.spanU = 1.8e8;
   },
   'Planet + moon (orbit)': () => {
