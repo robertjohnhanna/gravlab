@@ -61,7 +61,9 @@ export class Renderer {
   }
 
   // Sample |g|, in-plane g-components and the potential Φ over a grid.
-  computeGrid(cols = 150) {
+  // `smooth` eases the colour range toward the new extrema instead of snapping,
+  // so during playback the heatmap doesn't flash as the field extrema wobble.
+  computeGrid(cols = 150, smooth = false) {
     const v = this.view;
     const rows = Math.max(2, Math.round(cols * v.H / v.W));
     const mag = new Float32Array(cols * rows);
@@ -85,16 +87,24 @@ export class Renderer {
     if (!isFinite(lo)) { lo = -6; hi = 0; }
     lo = Math.max(lo, hi - 6);                    // clamp to ~6 decades
     this.grid = { cols, rows, mag, gu, gv, phi };
-    this.range = { min: lo, max: hi };
+    // Ease the colour range during playback (smooth), snap otherwise.
+    if (smooth && this._rangeSet) {
+      const a = 0.08;
+      this.range.min += (lo - this.range.min) * a;
+      this.range.max += (hi - this.range.max) * a;
+    } else {
+      this.range = { min: lo, max: hi };
+      this._rangeSet = true;
+    }
+    const rlo = this.range.min, rspan = (this.range.max - this.range.min) || 1;
     // build heatmap image at grid resolution
     const off = this.heat || (this.heat = document.createElement('canvas'));
     off.width = cols; off.height = rows;
     const octx = off.getContext('2d');
     const img = octx.createImageData(cols, rows);
-    const span = (hi - lo) || 1;
     for (let k = 0; k < cols * rows; k++) {
       const m = mag[k];
-      const t = m > 0 ? (Math.log10(m) - lo) / span : 0;
+      const t = m > 0 ? (Math.log10(m) - rlo) / rspan : 0;
       const c = viridis(t);
       img.data[k * 4] = c[0]; img.data[k * 4 + 1] = c[1]; img.data[k * 4 + 2] = c[2]; img.data[k * 4 + 3] = 255;
     }

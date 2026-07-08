@@ -76,7 +76,7 @@ let gridDirty = false, layersDirty = false, frameQueued = false;
 function tick() {
   frameQueued = false;
   if (simRunning) simStep();                       // advance the N-body system first (moves bodies)
-  if (gridDirty) { renderer.computeGrid(simRunning ? 110 : 150); renderer.renderField(); gridDirty = layersDirty = false; }
+  if (gridDirty) { renderer.computeGrid(simRunning ? 110 : 150, simRunning); renderer.renderField(); gridDirty = layersDirty = false; }
   else if (layersDirty) { renderer.renderField(); layersDirty = false; }
   draw();
   if (simRunning) requestFrame();
