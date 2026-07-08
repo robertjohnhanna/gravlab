@@ -117,23 +117,46 @@ a sphere, a nonzero gravity-gradient torque on a tilted rod, and a torque
 equilibrium for a radially-aligned rod. Overlapping bodies are **refused** rather
 than given a meaningless value.
 
-## Orbit dynamics — velocity Verlet
+## Dynamics — full mutual N-body
 
-A launched **test mass** moves under **a = g(x)**. Integration uses the
-**velocity-Verlet (leapfrog)** scheme: symplectic and time-reversible, so it
-conserves orbital energy over long runs and closed orbits stay closed. The
-sub-step is **adaptive** — shortened in proportion to the local free-fall time —
-so a fast, close periapsis passage stays resolved. Verified against a circular
-orbit's constant radius, its Kepler period `T = 2π√(r³/GM)`, and energy
-conservation.
+When the simulation runs, **every** body (each placed source and each launched
+body) moves under the gravity of all the others — there is no fixed background.
+The pairwise interaction is the exact Newtonian point-mass law
 
-The specific orbital energy `ε = ½v² + Φ` classifies the trajectory: ε < 0 is a
-**bound** (elliptical) orbit, ε ≥ 0 is **unbound** (parabolic/hyperbolic escape).
+```
+a_i = −G Σ_j m_j (x_i − x_j)/|x_i − x_j|³
+```
+
+which, by the shell theorem, is **exact for spheres** as long as they don't
+overlap. (Once two bodies touch, d < r_i+r_j, the pair crosses over to the
+uniform-sphere interior law ∝ d so a direct hit stays finite instead of blowing
+up.) Because the pair force is equal-and-opposite, **total momentum is conserved
+to machine precision** — a moon-sized body flung past a planet tugs the planet
+back, and a captured body and its primary orbit their common **barycentre**
+continuously. A projectile's own mass never changes *its own* trajectory (the
+equivalence principle) — only its pull on everything else.
+
+Integration uses the **velocity-Verlet (leapfrog)** scheme applied to the whole
+system: symplectic and time-reversible, so orbital energy is conserved over long
+runs and closed orbits stay closed. The sub-step is **adaptive** — shortened in
+proportion to the shortest pairwise encounter/orbital time — so a fast, close
+passage stays resolved. Verified against a circular binary's constant separation
+and Kepler period `T = 2π√(d³/G(m₁+m₂))`, a stationary barycentre, and momentum
+and energy conservation for 2- and 3-body systems.
+
+The specific orbital energy `ε = ½v² + Φ` classifies a body against the placed
+sources: ε < 0 is a **bound** (elliptical) orbit, ε ≥ 0 is **unbound**
+(parabolic/hyperbolic escape).
 
 ## Approximations & caveats
 
-- Launched masses are **test masses**: they feel the field but do not perturb the
-  sources or each other (no N-body back-reaction).
+- The N-body interaction treats each body as a **point mass at its centre of
+  mass** (exact for spheres; the far-field limit for extended bodies). Rotational
+  dynamics and time-varying tidal torques during an orbit are not integrated —
+  the exact tidal torque is reported for the *instantaneous* configuration in the
+  Force &amp; torque panel.
+- The field/heatmap is drawn from the **placed sources**; a launched body's own
+  field is not added to the map (its gravity still acts on the dynamics).
 - **Discs and cylinders** are exact rings summed over a finite stack; the field
   converges to the true solid as the stack density rises.
 - Motion is **Newtonian** (non-relativistic; no gravitomagnetism, no GR

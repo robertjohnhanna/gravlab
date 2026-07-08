@@ -273,3 +273,46 @@ export function verletStep(x, v, dt, accelFn, a0) {
   ];
   return { x: xNew, v: vNew, a: a1 };
 }
+
+// ---------------------------------------------------------------------------
+// Full mutual N-body gravity between bodies, each { x:[3], v:[3], mass, rad }.
+// Every body pulls on every other: a_i = −G Σ_j m_j (x_i−x_j)/|x_i−x_j|³.
+// The pair law is EXACT (Newtonian 1/r²) while the bodies don't touch
+// (d ≥ r_i+r_j) — which, by the shell theorem, is exact for spheres. Once they
+// overlap it crosses over to the uniform-sphere interior law (∝ d) so a direct
+// hit stays finite instead of exploding. The pair force is equal-and-opposite,
+// so total momentum is conserved to machine precision.
+// ---------------------------------------------------------------------------
+export function nbodyAccel(bodies) {
+  const n = bodies.length;
+  const a = new Array(n);
+  for (let i = 0; i < n; i++) a[i] = [0, 0, 0];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const bi = bodies[i], bj = bodies[j];
+    const dx = bi.x[0] - bj.x[0], dy = bi.x[1] - bj.x[1], dz = bi.x[2] - bj.x[2];
+    const d = Math.hypot(dx, dy, dz) || 1e-30;
+    const R = Math.max((bi.rad || 0) + (bj.rad || 0), 1e3);   // contact scale (min 1 km guard)
+    const inv = d >= R ? 1 / (d * d * d) : 1 / (R * R * R);   // exact outside; bounded within contact
+    const gi = G * bj.mass * inv, gj = G * bi.mass * inv;
+    a[i][0] -= gi * dx; a[i][1] -= gi * dy; a[i][2] -= gi * dz;
+    a[j][0] += gj * dx; a[j][1] += gj * dy; a[j][2] += gj * dz;
+  }
+  return a;
+}
+// One velocity-Verlet step of the whole system (mutates each body's x and v).
+export function nbodyStep(bodies, dt) {
+  const a0 = nbodyAccel(bodies);
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i], a = a0[i];
+    b.x[0] += b.v[0] * dt + 0.5 * a[0] * dt * dt;
+    b.x[1] += b.v[1] * dt + 0.5 * a[1] * dt * dt;
+    b.x[2] += b.v[2] * dt + 0.5 * a[2] * dt * dt;
+  }
+  const a1 = nbodyAccel(bodies);
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i];
+    b.v[0] += 0.5 * (a0[i][0] + a1[i][0]) * dt;
+    b.v[1] += 0.5 * (a0[i][1] + a1[i][1]) * dt;
+    b.v[2] += 0.5 * (a0[i][2] + a1[i][2]) * dt;
+  }
+}

@@ -41,6 +41,7 @@ export function defaultSource(type) {
     id: nextId(), type, name: '', visible: true,
     pos: [0, 0, 0],            // km
     rot: [0, 0, 0],            // yaw,pitch,roll in degrees
+    vel: [0, 0, 0],            // km/s — initial velocity for the N-body simulation
     mass: 5.972e24,            // kg
     color: pickColor(),
   };

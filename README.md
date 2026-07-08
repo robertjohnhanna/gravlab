@@ -5,8 +5,9 @@ entirely in the browser. Build a scene from point masses, planets, hollow shells
 rings, discs, cylinders, rods and boxes; see the field as a heat-map, field
 lines, equipotential contours and a vector quiver; drag a probe to read the exact
 **g** vector and potential Φ anywhere; read the exact tidal force and torque
-between bodies; and launch a test mass to watch it fall, orbit, escape or
-slingshot under real gravity.
+between bodies; and launch a body into a **full mutual N-body** simulation where
+every mass pulls on every other — slingshot a rock past a planet and watch it tug
+the planet back, or let two bodies orbit their shared barycentre.
 
 No installation, no accounts, no telescope — just open the page. Works on desktop
 and touch devices.
@@ -35,7 +36,7 @@ checked against an independent analytical limit:
 Run the checks yourself:
 
 ```bash
-npm test        # 47 physics assertions, all from first principles
+npm test        # 64 physics assertions, all from first principles
 ```
 
 Full derivations, formulas and references: **[docs/PHYSICS.md](docs/PHYSICS.md)**.
@@ -49,7 +50,7 @@ Full derivations, formulas and references: **[docs/PHYSICS.md](docs/PHYSICS.md)*
 | Slice control | view the XZ / XY / YZ plane at any offset through the 3-D scene |
 | Field probe | drag the ⊕ pin to read the full 3-D **g** vector and potential Φ, in m/s² / mGal / µGal / g₀ |
 | Force & torque | **exact** net gravitational force and **gravity-gradient (tidal) torque** on the selected body (real volume integral — no far-field approximation), valid at any separation |
-| Orbit lab | launch a test mass at a chosen speed; symplectic, energy-conserving integration; live speed, specific orbital energy and bound/escape classification |
+| N-body lab | launch a body (or set bodies' velocities) into a full mutual-gravity simulation — every mass moves, momentum/energy conserved; live speed, specific orbital energy and bound/escape classification |
 | Scenarios | one-click presets: binary system, planet + moon, spherical shell, ring world, tidal rod, slingshot fly-by |
 
 ## Using it
@@ -68,8 +69,9 @@ right. (On a phone the canvas becomes the hero and the panels stack below.)
   when **Snap** is on), **Delete** removes it.
 - Add masses from the palette; tune every parameter in the inspector; toggle
   visibility or delete from the object list.
-- **Launch** a test mass from the left of the view — tune the speed for a bound
-  orbit, an escape trajectory, or a slingshot.
+- **Launch** a body from the ⊕ probe (drag the red tip to aim), or give bodies a
+  velocity in the inspector and press **Play** — every mass then moves under
+  mutual gravity. **Reset** restores the placed layout.
 
 ## Running locally
 
@@ -110,8 +112,9 @@ docs/PHYSICS.md     derivations, formulas, references
 The honest list is in [docs/PHYSICS.md](docs/PHYSICS.md#approximations--caveats).
 In short: fields, potentials, forces and torques are exact for the idealised
 bodies (forces use the real volume integral, not a far-field approximation);
-discs/cylinders are exact rings summed over a finite stack; launched masses are
-test masses (no N-body back-reaction); motion is Newtonian; and the display is a
+discs/cylinders are exact rings summed over a finite stack; the N-body
+simulation treats bodies as point masses at their centres (exact for spheres);
+motion is Newtonian; and the display is a
 2-D slice of a fully 3-D calculation.
 
 ## License

@@ -33,21 +33,21 @@
       <div id="forceReadout" class="readout mono">Select an object</div>
     </section>
     <section>
-      <h2>Orbit data</h2>
-      <div id="partReadout" class="readout mono">Launch a test mass</div>
+      <h2>Body data</h2>
+      <div id="partReadout" class="readout mono">Launch a body, or press Play</div>
     </section>
     <section>
-      <h2>Test mass</h2>
+      <h2>Launch &amp; simulate</h2>
       <div class="prow">
         <label>Speed <input id="pSpeed" type="number" value="5" step="0.5" style="width:60px"> <span class="lc">km/s</span></label>
-        <label>Mass <input id="pMass" type="number" value="1000" step="100" min="0" style="width:76px"> <span class="lc">kg</span></label>
+        <label>Mass <input id="pMass" type="number" value="1e21" step="1e20" min="0" style="width:76px"> <span class="lc">kg</span></label>
       </div>
       <div class="prow">
         <button id="launch" class="primary">Launch</button>
-        <button id="pauseSim">Pause</button>
-        <button id="clearParts">Clear</button>
+        <button id="pauseSim">Play</button>
+        <button id="clearParts">Reset</button>
       </div>
-      <p class="hint">Launches from the ⊕ probe pin along the red aim line — drag its tip to aim, drag the pin to reposition. The amber arrow shows the field direction. Tune speed for a bound orbit, escape, or a slingshot.</p>
+      <p class="hint">Full N-body gravity: every body pulls on every other and <b>all of them move</b>. Launch a body from the ⊕ probe (drag the red tip to aim), or give bodies a velocity in the inspector and press Play. A moon-sized mass will visibly tug its planet. Reset restores the layout.</p>
     </section>
     <section>
       <h2>Layers</h2>

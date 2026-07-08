@@ -5,7 +5,7 @@
 import {
   G, pointField, pointPot, sphereField, spherePot, shellField, shellPot,
   ringField, ringPot, rodField, rodPot, cuboidField, cuboidPot, verletStep,
-  vadd, vsub, vscale, vlen, vcross,
+  nbodyStep, vadd, vsub, vscale, vlen, vcross,
 } from '../src/physics.js';
 import { Scene, defaultSource, sourceField, forceOn, massOf, BODIES, BODY_DIA } from '../src/sources.js';
 
@@ -267,6 +267,52 @@ console.log('\n== Named-body presets are self-consistent ==');
   const sc = new Scene(); sc.add(e);
   const g = vlen(sc.g([BODY_DIA['Earth (6.0e24)'] * 1000 / 2, 0, 0]));
   check('Earth preset surface g ≈ 9.8 m/s²', Math.abs(g - 9.82) < 0.1, g);
+}
+
+console.log('\n== N-body mutual gravity ==');
+{
+  const mom = (bs) => bs.reduce((s, b) => vadd(s, vscale(b.v, b.mass)), [0, 0, 0]);
+  const com = (bs) => { let M = 0, c = [0, 0, 0]; for (const b of bs) { M += b.mass; c = vadd(c, vscale(b.x, b.mass)); } return vscale(c, 1 / M); };
+  const energy = (bs) => {
+    let e = 0;
+    for (const b of bs) e += 0.5 * b.mass * vlen(b.v) ** 2;
+    for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) e -= G * bs[i].mass * bs[j].mass / vlen(vsub(bs[i].x, bs[j].x));
+    return e;
+  };
+  // Equal-mass circular binary about the barycentre.
+  const M = 5e24, d = 1e8, vrel = Math.sqrt(G * 2 * M / d), ve = vrel / 2;
+  const bodies = [
+    { x: [-d / 2, 0, 0], v: [0, ve, 0], mass: M, rad: 5e6 },
+    { x: [d / 2, 0, 0], v: [0, -ve, 0], mass: M, rad: 5e6 },
+  ];
+  const T = 2 * Math.PI * Math.sqrt(d ** 3 / (G * 2 * M)), dt = T / 8000;
+  const e0 = energy(bodies);
+  let sMin = Infinity, sMax = 0;
+  for (let n = 0; n < 8000; n++) { nbodyStep(bodies, dt); const s = vlen(vsub(bodies[0].x, bodies[1].x)); sMin = Math.min(sMin, s); sMax = Math.max(sMax, s); }
+  check('binary separation constant (circular)', (sMax - sMin) / d < 3e-3, `Δ/d=${((sMax - sMin) / d).toExponential(2)}`);
+  check('binary closes after one Kepler period', vlen(vsub(bodies[0].x, [-d / 2, 0, 0])) / d < 5e-3, '');
+  check('barycentre stationary', vlen(com(bodies)) / d < 1e-6, '');
+  check('total momentum conserved (≈0)', vlen(mom(bodies)) / (M * ve) < 1e-9, '');
+  check('total energy conserved', Math.abs(energy(bodies) - e0) / Math.abs(e0) < 1e-4, '');
+
+  // Asymmetric 3-body with net drift: momentum & energy must still be conserved.
+  const tb = [
+    { x: [0, 0, 0], v: [0, 0, 0], mass: 6e24, rad: 6e6 },
+    { x: [1.2e8, 0, 0], v: [0, 1800, 0], mass: 7e22, rad: 1e6 },
+    { x: [0, 9e7, 0], v: [-1500, 0, 0], mass: 2e23, rad: 2e6 },
+  ];
+  const p0 = mom(tb), en0 = energy(tb);
+  for (let n = 0; n < 6000; n++) nbodyStep(tb, 20);
+  check('3-body momentum conserved', vlen(vsub(mom(tb), p0)) / (vlen(p0) + 1e-30) < 1e-9, '');
+  check('3-body energy conserved', Math.abs(energy(tb) - en0) / Math.abs(en0) < 2e-3, `ΔE/E=${(Math.abs(energy(tb) - en0) / Math.abs(en0)).toExponential(2)}`);
+
+  // A light body barely perturbs a heavy one; a comparable one moves it a lot.
+  const recoil = (mProj) => {
+    const bs = [{ x: [0, 0, 0], v: [0, 0, 0], mass: 6e24, rad: 6e6 }, { x: [5e7, 0, 0], v: [0, 3000, 0], mass: mProj, rad: 1e5 }];
+    for (let n = 0; n < 3000; n++) nbodyStep(bs, 30);
+    return vlen(bs[0].v);            // how fast the "planet" ends up moving
+  };
+  check('heavier flyby moves the planet more', recoil(6e23) > 50 * recoil(6e21), '');
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

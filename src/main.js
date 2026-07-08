@@ -76,9 +76,9 @@ window.addEventListener('resize', () => {
 let gridDirty = false, layersDirty = false, frameQueued = false;
 function tick() {
   frameQueued = false;
-  if (gridDirty) { renderer.computeGrid(); renderer.renderField(); gridDirty = layersDirty = false; }
+  if (simRunning) simStep();                       // advance the N-body system first (moves bodies)
+  if (gridDirty) { renderer.computeGrid(simRunning ? 110 : 150); renderer.renderField(); gridDirty = layersDirty = false; }
   else if (layersDirty) { renderer.renderField(); layersDirty = false; }
-  if (simRunning) simStep();
   draw();
   if (simRunning) requestFrame();
 }
@@ -170,9 +170,28 @@ function drawLegend() {
 function fmtFieldShort(ms2) { const v = ms2 * UNITS[fieldUnit]; const a = Math.abs(v); return a >= 100 || (a < 1e-2 && a > 0) ? v.toExponential(1) : a >= 1 ? v.toFixed(1) : v.toPrecision(2); }
 function viridisCss(t) { const c = viridis(t); return `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`; }
 
-// ---- orbit simulation --------------------------------------------------
+// ---- N-body simulation -------------------------------------------------
+// Every visible body (placed source + launched projectile) moves under the
+// mutual gravity of all the others — exact Newtonian point-mass interaction
+// (exact for spheres by the shell theorem). Placed bodies respond too: a rock
+// flung past a planet tugs the planet, and a captured body orbits the shared
+// barycentre continuously. Positions live on s._origin / p.x; velocities on
+// s._v / p.v. Reset (below) restores the placed layout.
 let frameTime = 200;            // sim-seconds advanced per animation frame
-let baseDt = 4;                 // s per Verlet sub-step (adaptively shrunk)
+let baseDt = 4;                 // s per sub-step cap (adaptively shrunk)
+let simInited = false;
+
+// Physical radius [m] of a body — sets the contact scale for close encounters
+// and the projectile's on-screen size. Rock density ~3000 kg/m³ for projectiles.
+function projRadius(mass) { return Math.cbrt(3 * Math.max(mass, 0) / (4 * Math.PI * 3000)); }
+function radiusOf(s) {
+  switch (s.type) {
+    case 'sphere': case 'shell': case 'ring': case 'disc': return s.dia * 500;   // (km/2)→m
+    case 'cylinder': return Math.max(s.dia * 500, s.len * 500);
+    case 'box': return 0.5 * Math.hypot(s.size[0], s.size[1], s.size[2]) * 1000;
+    default: return 0;                                                            // point / rod
+  }
+}
 function drawParticles() {
   const ctx = renderer.ctx;
   for (const p of particles) {
@@ -183,59 +202,105 @@ function drawParticles() {
     }
     ctx.stroke();
     const s = view.toScreen(p.x);
-    const rr = Math.max(3, Math.min(7, 3 + 0.5 * Math.max(0, Math.log10(Math.max(1, p.mass)) - 2)));
+    const rr = Math.max(3, (p.rad || 0) * view.scale);   // draw at its true physical size
     ctx.fillStyle = p.alive ? p.color : '#8a8f98';
     ctx.beginPath(); ctx.arc(s[0], s[1], rr, 0, 7); ctx.fill();
-    if (!p.alive) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.strokeStyle = p.alive ? 'rgba(0,0,0,0.5)' : '#fff'; ctx.lineWidth = 1; ctx.stroke();
   }
 }
-// captured if inside a solid body, or very close to a point-like mass
-function captured(x) {
-  for (const s of scene.sources) {
-    if (!s.visible) continue;
-    const d = P.vlen(P.vsub(x, s._origin));
-    if (s.type === 'point' || s.type === 'rod' || s.type === 'ring') { if (d < view.spanU * 0.006) return true; }
-    else if (d < sourceExtent(s)) return true;
+// Assemble the live body list; x and v are shared by reference with the
+// source / projectile they belong to, so integrating mutates them in place.
+function simBodies() {
+  const bodies = [];
+  for (const s of scene.sources) if (s.visible) bodies.push({ x: s._origin, v: s._v, mass: s.mass, rad: radiusOf(s) });
+  for (const p of particles) if (p.alive) bodies.push({ x: p.x, v: p.v, mass: p.mass, rad: p.rad });
+  return bodies;
+}
+function comOf(bodies) {
+  let M = 0, c = [0, 0, 0];
+  for (const b of bodies) { M += b.mass; c[0] += b.mass * b.x[0]; c[1] += b.mass * b.x[1]; c[2] += b.mass * b.x[2]; }
+  return M > 0 ? [c[0] / M, c[1] / M, c[2] / M] : [0, 0, 0];
+}
+// Shortest resolved timescale across all pairs (encounter time & orbital time).
+function adaptiveDt(bodies) {
+  let dtm = baseDt;
+  for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
+    const bi = bodies[i], bj = bodies[j];
+    const d = P.vlen(P.vsub(bi.x, bj.x)) || 1;
+    const vr = P.vlen(P.vsub(bi.v, bj.v)) || 1;
+    const tOrb = Math.sqrt(d * d * d / (P.G * (bi.mass + bj.mass) + 1e-30));
+    dtm = Math.min(dtm, 0.02 * d / vr, 0.05 * tOrb);
   }
-  return false;
+  return dtm;
 }
 function simStep() {
-  const accel = (x) => scene.g(x);
+  const bodies = simBodies();
+  if (!bodies.length) return;
   const trailGap = view.spanU * 0.004;
-  for (const p of particles) {
-    if (!p.alive) continue;
-    let tacc = 0, sub = 0, a0 = accel(p.x);
-    while (tacc < frameTime && sub < 5000) {
-      // Adaptive step: keep dt short compared with the local free-fall time so
-      // the orbit stays resolved even during a fast, close periapsis passage.
-      const amag = P.vlen(a0) || 1e-30, sp = P.vlen(p.v) || 1e-30;
-      let dt = Math.min(baseDt, 0.02 * sp / amag, frameTime - tacc);
-      if (!(dt > 0)) dt = frameTime - tacc;
-      const r = P.verletStep(p.x, p.v, dt, accel, a0);
-      p.x = r.x; p.v = r.v; a0 = r.a; tacc += dt; sub++;
+  const projs = particles.filter((p) => p.alive);
+  const srcs = scene.sources.filter((s) => s.visible);
+  let tacc = 0, sub = 0;
+  while (tacc < frameTime && sub < 4000) {
+    let dt = Math.min(adaptiveDt(bodies), frameTime - tacc);
+    if (!(dt > 0)) break;
+    P.nbodyStep(bodies, dt);
+    tacc += dt; sub++;
+    for (const p of projs) {
+      if (!p.alive) continue;
       const last = p.trail[p.trail.length - 1];
-      if (!last || P.vlen(P.vsub(p.x, last)) > trailGap) p.trail.push(p.x);
-      if (captured(p.x)) { p.alive = false; break; }
-      if (P.vlen(P.vsub(p.x, view.worldFromUV(view.center[0], view.center[1]))) > view.spanU * 8) { p.alive = false; break; }
+      if (!last || P.vlen(P.vsub(p.x, last)) > trailGap) p.trail.push(p.x.slice());
+      for (const s of srcs) if (P.vlen(P.vsub(p.x, s._origin)) < radiusOf(s) + p.rad) { p.alive = false; break; }   // impact
     }
-    if (p.trail.length > 4000) p.trail.splice(0, p.trail.length - 4000);
   }
+  const com = comOf(bodies);
+  for (const p of projs) if (P.vlen(P.vsub(p.x, com)) > view.spanU * 12) p.alive = false;   // escaped the view
+  for (const p of particles) if (p.trail.length > 5000) p.trail.splice(0, p.trail.length - 5000);
   updateParticleReadout();
+  gridDirty = true;   // bodies moved → the field must be recomputed this frame
 }
-function startSim() { document.getElementById('pauseSim').textContent = 'Pause'; if (!simRunning) { simRunning = true; requestFrame(); } }
+// Snapshot the placed layout into the runtime state (velocities from each body's
+// vel field). Called the first time the sim runs after a reset.
+function initSim() {
+  scene.sources.forEach(buildSource);                       // _origin ← pos
+  for (const s of scene.sources) s._v = (s.vel || [0, 0, 0]).map((c) => c * 1000);   // km/s → m/s
+  calibrateTime();
+  simInited = true;
+}
+function startSim() {
+  if (!simInited) initSim();
+  document.getElementById('pauseSim').textContent = 'Pause';
+  if (!simRunning) { simRunning = true; requestFrame(); }
+}
+function resetSim() {
+  simRunning = false; simInited = false; particles.length = 0;
+  scene.sources.forEach(buildSource);                       // restore placed positions
+  for (const s of scene.sources) s._v = [0, 0, 0];
+  document.getElementById('pauseSim').textContent = 'Play';
+  document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
+  invalidateField();
+}
 function updateParticleReadout() {
+  const el = document.getElementById('partReadout');
   const p = particles[particles.length - 1];
-  if (!p) return;
-  const speed = P.vlen(p.v);
-  const phi = scene.potential(p.x);             // per unit mass
-  const eps = 0.5 * speed * speed + phi;        // specific orbital energy
-  const KEj = 0.5 * p.mass * speed * speed;     // kinetic energy [J]
-  const bound = eps < 0;
-  document.getElementById('partReadout').innerHTML =
-    `<div><b>v</b> ${(speed / 1000).toFixed(2)} km/s</div>` +
-    `<div><b>KE</b> ${fmtMag(KEj, 'J')}</div>` +
-    `<div><b>ε</b> ${(eps >= 0 ? '+' : '−') + fmtMag(Math.abs(eps), 'J/kg')}</div>` +
-    `<div>${p.alive ? (bound ? 'bound orbit' : 'unbound (escape)') : 'captured / lost'}</div>`;
+  if (p) {
+    const speed = P.vlen(p.v);
+    const eps = 0.5 * speed * speed + scene.potential(p.x);   // specific energy vs the placed sources
+    el.innerHTML =
+      `<div><b>v</b> ${(speed / 1000).toFixed(2)} km/s</div>` +
+      `<div><b>KE</b> ${fmtMag(0.5 * p.mass * speed * speed, 'J')}</div>` +
+      `<div><b>ε</b> ${(eps >= 0 ? '+' : '−') + fmtMag(Math.abs(eps), 'J/kg')}</div>` +
+      `<div>${p.alive ? (eps < 0 ? 'bound orbit' : 'unbound (escape)') : 'captured / lost'}</div>`;
+    return;
+  }
+  // No projectile: report the selected body's motion during an N-body run.
+  const s = scene.get(selectedId);
+  if (simInited && s && s._v) {
+    const speed = P.vlen(s._v);
+    el.innerHTML =
+      `<div><b>${s.name}</b></div>` +
+      `<div><b>v</b> ${(speed / 1000).toFixed(3)} km/s</div>` +
+      `<div><b>KE</b> ${fmtMag(0.5 * s.mass * speed * speed, 'J')}</div>`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +326,9 @@ const commonDefs = [
   ['Yaw °', 'rot.0', -180, 180, 1],
   ['Pitch °', 'rot.1', -180, 180, 1],
   ['Roll °', 'rot.2', -180, 180, 1],
+  ['Vx (km/s)', 'vel.0', -20, 20, 0.05],
+  ['Vy (km/s)', 'vel.1', -20, 20, 0.05],
+  ['Vz (km/s)', 'vel.2', -20, 20, 0.05],
 ];
 
 function getPath(o, path) { const k = path.split('.'); let v = o; for (const p of k) v = v[isNaN(p) ? p : +p]; return v; }
@@ -561,9 +629,9 @@ window.addEventListener('keydown', (e) => {
 });
 
 document.getElementById('clearAll').addEventListener('click', () => {
-  scene.sources = []; selectedId = null; particles.length = 0; simRunning = false;
-  document.getElementById('pauseSim').textContent = 'Pause';
-  document.getElementById('partReadout').textContent = 'Launch a test mass';
+  scene.sources = []; selectedId = null; particles.length = 0; simRunning = false; simInited = false;
+  document.getElementById('pauseSim').textContent = 'Play';
+  document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
   buildList(); buildInspector(); invalidateField();
 });
 
@@ -589,7 +657,7 @@ function calibrateTime() {
   baseDt = frameTime / 30;
 }
 function launchParticle() {
-  calibrateTime();
+  if (!simInited) initSim();
   const speed = (Math.abs(parseFloat(document.getElementById('pSpeed').value)) || 5) * 1000;   // km/s -> m/s
   const mass = Math.max(0, parseFloat(document.getElementById('pMass').value)) || 1;            // kg
   // Launch from the field-probe pin, along the red shooter aim (which stays
@@ -597,32 +665,32 @@ function launchParticle() {
   const pos = probe ? probe.slice() : view.worldFromUV(view.center[0] - view.spanU * 0.42, view.center[1]);
   const dir = [0, 0, 0]; dir[view.uAxis] = aimDir[0]; dir[view.vAxis] = aimDir[1];
   const vel = dir.map((c) => c * speed);
-  particles.push({ x: pos, v: vel, mass, trail: [pos.slice()], color: '#ffd27a', alive: true });
+  particles.push({ x: pos, v: vel, mass, rad: projRadius(mass), trail: [pos.slice()], color: '#ffd27a', alive: true });
   startSim();
 }
 document.getElementById('launch').addEventListener('click', launchParticle);
-document.getElementById('clearParts').addEventListener('click', () => {
-  particles.length = 0; simRunning = false;
-  document.getElementById('pauseSim').textContent = 'Pause';
-  document.getElementById('partReadout').textContent = 'Launch a test mass'; requestDraw();
-});
+document.getElementById('clearParts').addEventListener('click', resetSim);
 document.getElementById('pauseSim').addEventListener('click', (e) => {
-  simRunning = !simRunning; e.target.textContent = simRunning ? 'Pause' : 'Resume';
-  if (simRunning) requestFrame();
+  if (simRunning) { simRunning = false; e.target.textContent = 'Play'; }
+  else { startSim(); }
 });
 
 // ---- presets / scenarios ----------------------------------------------
 const presets = {
   'Binary system': () => {
+    // Two stars on circular orbits about their common barycentre. Press Play.
     scene.sources = [];
     const a = defaultSource('sphere'); a.name = 'Star A'; a.mass = 4e24; a.dia = 12000; a.pos = [-30000, 0, 0];
     const b = defaultSource('sphere'); b.name = 'Star B'; b.mass = 2e24; b.dia = 9000; b.pos = [30000, 0, 0];
-    scene.add(a); scene.add(b); view.spanU = 1.4e8;
+    a.vel = [0, 0, 0.861]; b.vel = [0, 0, -1.721];       // km/s: m₁v₁ = m₂v₂, opposite, ⟂ separation
+    scene.add(a); scene.add(b); view.spanU = 1.8e8;
   },
   'Planet + moon (orbit)': () => {
+    // Moon on a near-circular orbit; the planet recoils about the barycentre. Play.
     scene.sources = [];
     const p = defaultSource('sphere'); p.name = 'Planet'; p.mass = 6e24; p.dia = 13000; p.pos = [0, 0, 0];
     const m = defaultSource('sphere'); m.name = 'Moon'; m.mass = 7e22; m.dia = 4000; m.pos = [90000, 0, 0];
+    m.vel = [0, 0, 2.12]; p.vel = [0, 0, -2.12 * 7e22 / 6e24];   // km/s, momentum-balanced
     scene.add(p); scene.add(m); view.spanU = 3e8;
     document.getElementById('pSpeed').value = 2.1;
   },
@@ -657,9 +725,9 @@ presetSel.innerHTML = '<option value="">SCENARIO…</option>';
 for (const name of Object.keys(presets)) presetSel.innerHTML += `<option value="${name}">${name.toUpperCase()}</option>`;
 presetSel.addEventListener('change', () => {
   if (!presets[presetSel.value]) return;
-  particles.length = 0; simRunning = false;
-  document.getElementById('pauseSim').textContent = 'Pause';
-  document.getElementById('partReadout').textContent = 'Launch a test mass';
+  particles.length = 0; simRunning = false; simInited = false;
+  document.getElementById('pauseSim').textContent = 'Play';
+  document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
   const wantSel = presets[presetSel.value]();
   scene.rebuild();
   selectedId = wantSel || (scene.sources[0] ? scene.sources[0].id : null);
