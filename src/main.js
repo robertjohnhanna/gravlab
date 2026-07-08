@@ -684,6 +684,12 @@ function launchParticle() {
 }
 document.getElementById('launch').addEventListener('click', launchParticle);
 document.getElementById('clearParts').addEventListener('click', resetSim);
+// Launch-speed bar: keep the slider and the number box in sync.
+{
+  const rng = document.getElementById('pSpeedRange'), num = document.getElementById('pSpeed');
+  rng.addEventListener('input', () => { num.value = rng.value; });
+  num.addEventListener('input', () => { const n = parseFloat(num.value); if (!isNaN(n)) rng.value = n; });
+}
 document.getElementById('pauseSim').addEventListener('click', () => {
   if (simRunning) { simRunning = false; setRunningUI(false); }
   else { startSim(); }
