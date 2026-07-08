@@ -76,7 +76,7 @@ let gridDirty = false, layersDirty = false, frameQueued = false;
 function tick() {
   frameQueued = false;
   if (simRunning) simStep();                       // advance the N-body system first (moves bodies)
-  if (gridDirty) { renderer.computeGrid(simRunning ? 110 : 150, simRunning); renderer.renderField(); gridDirty = layersDirty = false; }
+  if (gridDirty) { renderer.computeGrid(simRunning ? 96 : 150, simRunning); renderer.renderField(); gridDirty = layersDirty = false; }
   else if (layersDirty) { renderer.renderField(); layersDirty = false; }
   draw();
   if (simRunning) requestFrame();
@@ -169,6 +169,7 @@ function viridisCss(t) { const c = viridis(t); return `rgb(${c[0] | 0},${c[1] | 
 let frameTime = 200;            // sim-seconds advanced per animation frame
 let baseDt = 4;                 // s per sub-step cap (adaptively shrunk)
 let simInited = false;
+let fieldSkip = 0;              // throttles the heatmap recompute during playback
 
 // Physical radius [m] of a body — sets the contact scale for close encounters
 // and the projectile's on-screen size. Rock density ~3000 kg/m³ for projectiles.
@@ -238,20 +239,35 @@ function simStep() {
       if (!p.alive) continue;
       const last = p.trail[p.trail.length - 1];
       if (!last || P.vlen(P.vsub(p.x, last)) > trailGap) p.trail.push(p.x.slice());
-      for (const s of srcs) if (P.vlen(P.vsub(p.x, s._origin)) < radiusOf(s) + p.rad) { p.alive = false; break; }   // impact
+      for (const s of srcs) if (P.vlen(P.vsub(p.x, s._origin)) < radiusOf(s) + p.rad) { absorb(s, p); break; }   // impact
     }
   }
   const com = comOf(bodies);
   for (const p of projs) if (P.vlen(P.vsub(p.x, com)) > view.spanU * 12) p.alive = false;   // escaped the view
   for (const p of particles) if (p.trail.length > 5000) p.trail.splice(0, p.trail.length - 5000);
   updateParticleReadout();
-  gridDirty = true;   // bodies moved → the field must be recomputed this frame
+  // Bodies moved → refresh the field, but only every other frame: the heatmap is
+  // expensive (per-pixel × every source), while the body overlay redraws each
+  // frame regardless, so motion stays smooth and the field keeps up closely.
+  if ((fieldSkip = (fieldSkip + 1) & 1) === 0) gridDirty = true;
+}
+// Perfectly inelastic impact: the projectile is absorbed by the body it hits.
+// Momentum is conserved — the body recoils to the combined centre-of-mass
+// velocity and gains the projectile's mass (kinetic energy is lost to the
+// impact, as in a real collision). The projectile stops (is removed).
+function absorb(s, p) {
+  const M = s.mass, m = p.mass, tot = M + m || 1;
+  s._v = [(M * s._v[0] + m * p.v[0]) / tot, (M * s._v[1] + m * p.v[1]) / tot, (M * s._v[2] + m * p.v[2]) / tot];
+  s.mass = tot;
+  if (s._rings) { const f = tot / (M || 1); for (const r of s._rings) r.m *= f; }   // keep the field in sync without moving _origin
+  p.alive = false;
 }
 // Snapshot the placed layout into the runtime state (velocities from each body's
-// vel field). Called the first time the sim runs after a reset.
+// vel field; masses so an accreting impact can be undone). Called the first time
+// the sim runs after a reset.
 function initSim() {
   scene.sources.forEach(buildSource);                       // _origin ← pos
-  for (const s of scene.sources) s._v = (s.vel || [0, 0, 0]).map((c) => c * 1000);   // km/s → m/s
+  for (const s of scene.sources) { s._v = (s.vel || [0, 0, 0]).map((c) => c * 1000); s._mass0 = s.mass; }   // km/s → m/s
   calibrateTime();
   simInited = true;
 }
@@ -262,7 +278,8 @@ function startSim() {
 }
 function resetSim() {
   simRunning = false; simInited = false; particles.length = 0;
-  scene.sources.forEach(buildSource);                       // restore placed positions
+  for (const s of scene.sources) { if (s._mass0 != null) s.mass = s._mass0; }   // undo accretion
+  scene.sources.forEach(buildSource);                       // restore placed positions (& ring masses)
   for (const s of scene.sources) s._v = [0, 0, 0];
   document.getElementById('pauseSim').textContent = 'Play';
   document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
@@ -315,9 +332,9 @@ const commonDefs = [
   ['Yaw °', 'rot.0', -180, 180, 1],
   ['Pitch °', 'rot.1', -180, 180, 1],
   ['Roll °', 'rot.2', -180, 180, 1],
-  ['Vx (km/s)', 'vel.0', -20, 20, 0.05],
-  ['Vy (km/s)', 'vel.1', -20, 20, 0.05],
-  ['Vz (km/s)', 'vel.2', -20, 20, 0.05],
+  ['Vx (km/s)', 'vel.0', -60, 60, 0.05],
+  ['Vy (km/s)', 'vel.1', -60, 60, 0.05],
+  ['Vz (km/s)', 'vel.2', -60, 60, 0.05],
 ];
 
 function getPath(o, path) { const k = path.split('.'); let v = o; for (const p of k) v = v[isNaN(p) ? p : +p]; return v; }
@@ -485,9 +502,10 @@ const snapChk = document.getElementById('snapChk');
 snapChk.addEventListener('change', () => { snap = snapChk.checked; });
 document.getElementById('snapStep').addEventListener('change', (e) => { snapStep = Math.max(100, parseFloat(e.target.value) || 1000); });
 
+const MAX_SPAN = 2e13;   // widest zoom-out [m] — fits the outer solar system
 function zoomBy(factor, sx, sy) {
   const before = (sx !== undefined) ? view.toWorld(sx, sy) : null;
-  view.spanU = Math.max(2e6, Math.min(4e9, view.spanU * factor));
+  view.spanU = Math.max(2e6, Math.min(MAX_SPAN, view.spanU * factor));
   if (before) {
     const after = view.toWorld(sx, sy);
     view.center[0] += before[view.uAxis] - after[view.uAxis];
@@ -516,7 +534,7 @@ function fitView() {
   }
   view.center = [(uMin + uMax) / 2, (vMin + vMax) / 2];
   const span = Math.max(uMax - uMin, (vMax - vMin) * view.W / view.H, 4e6) * 1.6;
-  view.spanU = Math.max(4e6, Math.min(4e9, span));
+  view.spanU = Math.max(4e6, Math.min(MAX_SPAN, span));
   invalidateField();
 }
 
@@ -563,7 +581,7 @@ canvas.addEventListener('pointermove', (e) => {
     const dist = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]) || 1;
     const mx = (p[0][0] + p[1][0]) / 2, my = (p[0][1] + p[1][1]) / 2;
     const before = view.toWorld(mx, my);
-    view.spanU = Math.max(2e6, Math.min(4e9, pinch.span * pinch.dist / dist));
+    view.spanU = Math.max(2e6, Math.min(MAX_SPAN, pinch.span * pinch.dist / dist));
     const after = view.toWorld(mx, my);
     view.center[0] += before[view.uAxis] - after[view.uAxis];
     view.center[1] += before[view.vAxis] - after[view.vAxis];
@@ -666,6 +684,37 @@ document.getElementById('pauseSim').addEventListener('click', (e) => {
 
 // ---- presets / scenarios ----------------------------------------------
 const presets = {
+  'Solar system': () => {
+    // The Sun + 8 planets on circular, coplanar orbits (real masses, distances
+    // and orbital speeds). Press Play — inner planets whirl, outer ones crawl,
+    // and the Sun wobbles about the barycentre (mostly Jupiter's doing).
+    scene.sources = [];
+    const GM = P.G * 1.989e30;                                  // Sun's GM [m³/s²]
+    const sun = defaultSource('sphere'); sun.name = 'Sun'; sun.mass = 1.989e30; sun.dia = 1391000; sun.pos = [0, 0, 0]; sun.color = '#ffcf3a';
+    // name, mass [kg], orbital radius [km], diameter [km], colour
+    const planets = [
+      ['Mercury', 3.301e23, 57.9e6, 4879, '#b0a58e'],
+      ['Venus', 4.867e24, 108.2e6, 12104, '#d8b47a'],
+      ['Earth', 5.972e24, 149.6e6, 12742, '#4aa3ff'],
+      ['Mars', 6.417e23, 227.9e6, 6779, '#e0682f'],
+      ['Jupiter', 1.898e27, 778.5e6, 139820, '#d9a066'],
+      ['Saturn', 5.683e26, 1434e6, 116460, '#e6d3a3'],
+      ['Uranus', 8.681e25, 2871e6, 50724, '#7fd8e0'],
+      ['Neptune', 1.024e26, 4495e6, 49244, '#3f66e0'],
+    ];
+    let pz = 0;                                                 // total planet z-momentum [kg·m/s]
+    const bodies = [];
+    for (const [name, mass, aKm, dia, color] of planets) {
+      const v = Math.sqrt(GM / (aKm * 1000));                   // circular-orbit speed [m/s]
+      const s = defaultSource('sphere');
+      s.name = name; s.mass = mass; s.dia = dia; s.pos = [aKm, 0, 0]; s.vel = [0, 0, v / 1000]; s.color = color;
+      pz += mass * v; bodies.push(s);
+    }
+    sun.vel = [0, 0, -(pz / 1.989e30) / 1000];                  // km/s — balance total momentum
+    scene.add(sun); for (const s of bodies) scene.add(s);
+    view.spanU = 1.1e13; view.center = [0, 0];
+    return sun.id;
+  },
   'Binary system': () => {
     // Two stars on circular orbits about their common barycentre. Press Play.
     scene.sources = [];

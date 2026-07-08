@@ -51,7 +51,8 @@ Full derivations, formulas and references: **[docs/PHYSICS.md](docs/PHYSICS.md)*
 | Field probe | drag the ⊕ pin to read the full 3-D **g** vector and potential Φ, in m/s² / mGal / µGal / g₀ |
 | Force & torque | **exact** net gravitational force and **gravity-gradient (tidal) torque** on the selected body (real volume integral — no far-field approximation), valid at any separation |
 | N-body lab | launch a body (or set bodies' velocities) into a full mutual-gravity simulation — every mass moves, momentum/energy conserved; live speed, specific orbital energy and bound/escape classification |
-| Scenarios | one-click presets: binary system, planet + moon, spherical shell, ring world, tidal rod, slingshot fly-by |
+| Scenarios | one-click presets: **solar system** (Sun + 8 planets, real masses/distances/speeds), binary system, planet + moon, spherical shell, ring world, tidal rod, slingshot fly-by |
+| Collisions | a launched body that strikes a placed body is absorbed in a perfectly inelastic impact — momentum conserved, the struck body recoils and accretes the mass |
 
 ## Using it
 

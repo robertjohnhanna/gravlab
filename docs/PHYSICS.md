@@ -129,11 +129,17 @@ a_i = −G Σ_j m_j (x_i − x_j)/|x_i − x_j|³
 
 which, by the shell theorem, is **exact for spheres** as long as they don't
 overlap. (Once two bodies touch, d < r_i+r_j, the pair crosses over to the
-uniform-sphere interior law ∝ d so a direct hit stays finite instead of blowing
+uniform-sphere interior law ∝ d so a near-miss stays finite instead of blowing
 up.) Because the pair force is equal-and-opposite, **total momentum is conserved
 to machine precision** — a moon-sized body flung past a planet tugs the planet
 back, and a captured body and its primary orbit their common **barycentre**
-continuously. A projectile's own mass never changes *its own* trajectory (the
+continuously.
+
+**Collisions.** When a launched body actually strikes a placed body it is
+absorbed in a **perfectly inelastic collision**: momentum is conserved, so the
+struck body recoils to the combined centre-of-mass velocity and gains the
+impactor's mass, while the impactor stops. Kinetic energy is *not* conserved —
+the lost energy is what a real impact dumps into heat, deformation and ejecta. A projectile's own mass never changes *its own* trajectory (the
 equivalence principle) — only its pull on everything else.
 
 Integration uses the **velocity-Verlet (leapfrog)** scheme applied to the whole
