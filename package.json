@@ -1,0 +1,10 @@
+{
+  "name": "gravity",
+  "version": "0.1.0",
+  "description": "Physics-accurate Newtonian gravity simulator (point masses, planets, shells, rings, rods, boxes; fields, potentials, tidal force/torque, orbit integration).",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/selftest.mjs"
+  },
+  "license": "MIT"
+}

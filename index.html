@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07080d">
+  <title>Gravity — Field Lab</title>
+  <meta name="description" content="Physics-accurate interactive Newtonian gravity simulator: point masses, planets, shells, rings, rods and boxes, with field lines, equipotentials, exact tidal force/torque and live orbit integration.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%AA%90%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>🪐 Gravity</h1>
+  <div class="topctrl">
+    <select id="presetSel" title="Scenario"></select>
+    <label>Plane <select id="planeSel"></select></label>
+    <label>Slice <input id="sliceInput" type="number" value="0" step="1000" style="width:64px"> <span class="lc">km</span></label>
+    <label>Units <select id="unitSel"></select></label>
+    <label title="Snap to grid"><input type="checkbox" id="snapChk"> Snap
+      <input id="snapStep" type="number" value="1000" step="500" min="100" style="width:60px"> <span class="lc">km</span></label>
+  </div>
+</header>
+
+<div id="app">
+  <aside id="left">
+    <section>
+      <h2>Field probe</h2>
+      <div id="probeReadout" class="readout mono">Drag the ⊕ pin to read g</div>
+    </section>
+    <section>
+      <h2>Force &amp; torque</h2>
+      <div id="forceReadout" class="readout mono">Select an object</div>
+    </section>
+    <section>
+      <h2>Orbit data</h2>
+      <div id="partReadout" class="readout mono">Launch a test mass</div>
+    </section>
+    <section>
+      <h2>Test mass</h2>
+      <div class="prow">
+        <label>Speed <input id="pSpeed" type="number" value="5" step="0.5" style="width:66px"> <span class="lc">km/s</span></label>
+      </div>
+      <div class="prow">
+        <button id="launch" class="primary">Launch</button>
+        <button id="pauseSim">Pause</button>
+        <button id="clearParts">Clear</button>
+      </div>
+      <p class="hint">Launched from the left of the view, moving right. Tune speed for a bound orbit, escape, or a slingshot.</p>
+    </section>
+    <section>
+      <h2>Layers</h2>
+      <label class="chk"><input type="checkbox" id="tglHeat"> Heatmap |g|</label>
+      <label class="chk"><input type="checkbox" id="tglLines"> Field lines</label>
+      <label class="chk"><input type="checkbox" id="tglEqui"> Equipotentials</label>
+      <label class="chk"><input type="checkbox" id="tglVec"> Arrows</label>
+      <label class="chk"><input type="checkbox" id="tglGrid"> Grid</label>
+    </section>
+  </aside>
+
+  <main>
+    <div id="canvasWrap">
+      <canvas id="view"></canvas>
+      <div id="zoomCtrl">
+        <button id="zoomIn" title="Zoom in">＋</button>
+        <button id="zoomOut" title="Zoom out">－</button>
+        <button id="zoomFit" title="Fit">Fit</button>
+        <button id="zoomReset" title="Reset">⟲</button>
+      </div>
+      <div id="axisBadge"><span id="axV">Z</span>↑ &nbsp; <span id="axU">X</span>→</div>
+    </div>
+  </main>
+
+  <aside id="right">
+    <section>
+      <h2>Add mass</h2>
+      <div class="addgrid">
+        <button data-add="point">Point</button>
+        <button data-add="sphere">Sphere</button>
+        <button data-add="shell">Shell</button>
+        <button data-add="ring">Ring</button>
+        <button data-add="disc">Disc</button>
+        <button data-add="cylinder">Cylinder</button>
+        <button data-add="rod">Rod</button>
+        <button data-add="box">Box</button>
+      </div>
+    </section>
+    <section>
+      <h2>Objects</h2>
+      <div id="objlist"></div>
+      <button id="clearAll" class="danger" style="margin-top:8px;width:100%">Clear all</button>
+    </section>
+    <section>
+      <h2>Inspector</h2>
+      <div id="inspector"></div>
+    </section>
+  </aside>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
