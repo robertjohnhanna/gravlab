@@ -96,8 +96,20 @@ function invalidateField() { gridDirty = true; updateForceTile(); requestFrame()
 function invalidateLayers() { layersDirty = true; requestFrame(); }
 
 // ---- probe overlay -----------------------------------------------------
+// Keep the probe pin (and its shooter reach) inside the viewport, so panning or
+// zooming never loses it — it slides along the edge instead of vanishing.
+function clampProbe() {
+  if (!probe) return;
+  const m = (AIM_LEN + 14) / view.scale;         // world-space margin for pin + shooter
+  const cu = view.center[0], cv = view.center[1], hu = view.spanU / 2, hv = view.spanV / 2;
+  let u = probe[view.uAxis], v = probe[view.vAxis];
+  u = hu > m ? Math.min(cu + hu - m, Math.max(cu - hu + m, u)) : cu;
+  v = hv > m ? Math.min(cv + hv - m, Math.max(cv - hv + m, v)) : cv;
+  probe = view.worldFromUV(u, v);
+}
 function drawProbe() {
   if (!probe) return;
+  clampProbe();
   const ctx = renderer.ctx;
   const s = view.toScreen(probe);
   const g = scene.g(probe);
@@ -237,7 +249,7 @@ const paramDefs = {
   sphere:   [['mass'], ['Dia (km)', 'dia', 100, 1500000, 500]],
   shell:    [['mass'], ['Dia (km)', 'dia', 100, 1500000, 500]],
   ring:     [['massonly'], ['Dia (km)', 'dia', 1000, 300000, 500]],
-  disc:     [['massonly'], ['Dia (km)', 'dia', 1000, 300000, 500]],
+  disc:     [['massonly'], ['Dia (km)', 'dia', 1000, 300000, 500], ['Thickness (km)', 'thick', 0, 120000, 250]],
   cylinder: [['massonly'], ['Dia (km)', 'dia', 1000, 200000, 500], ['Len (km)', 'len', 1000, 300000, 500]],
   rod:      [['massonly'], ['Len (km)', 'len', 1000, 400000, 500]],
   box:      [['massonly'], ['W (km)', 'size.0', 1000, 200000, 500], ['H (km)', 'size.1', 1000, 200000, 500], ['L (km)', 'size.2', 1000, 200000, 500]],

@@ -334,12 +334,12 @@ export class Renderer {
     return this.view.toScreen(w);
   }
 
-  // Project a local circle (radius km, in the local z=0 plane) to a screen polyline.
-  ringPoly(s, radiusKm, n = 64) {
+  // Project a local circle (radius km, at local-z = zKm) to a screen polyline.
+  ringPoly(s, radiusKm, n = 64, zKm = 0) {
     const pts = [];
     for (let i = 0; i <= n; i++) {
       const th = 2 * Math.PI * i / n;
-      pts.push(this.localToScreen(s, [radiusKm * Math.cos(th), radiusKm * Math.sin(th), 0]));
+      pts.push(this.localToScreen(s, [radiusKm * Math.cos(th), radiusKm * Math.sin(th), zKm]));
     }
     return pts;
   }
@@ -384,10 +384,21 @@ export class Renderer {
 
   drawDisc(s, sel) {
     const ctx = this.ctx;
-    const poly = this.ringPoly(s, s.dia / 2);
-    ctx.beginPath(); poly.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath();
-    ctx.fillStyle = s.color; ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.strokeStyle = sel ? '#fff' : shade(s.color, 0.7); ctx.lineWidth = sel ? 2 : 1.5; ctx.stroke();
+    const r = s.dia / 2, t = (s.thick || 0) / 2;
+    const trace = (poly) => { ctx.beginPath(); poly.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); };
+    if (t > 0) {
+      // Two projected faces offset by the thickness give a 3-D puck: flat when
+      // seen face-on, a clear slab when seen edge-on.
+      const back = this.ringPoly(s, r, 64, -t), front = this.ringPoly(s, r, 64, t);
+      trace(back); ctx.fillStyle = shade(s.color, 0.5); ctx.globalAlpha = 0.6; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = shade(s.color, 0.6); ctx.lineWidth = 1; ctx.stroke();
+      trace(front); ctx.fillStyle = s.color; ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = sel ? '#fff' : shade(s.color, 0.75); ctx.lineWidth = sel ? 2 : 1.5; ctx.stroke();
+    } else {
+      trace(this.ringPoly(s, r));
+      ctx.fillStyle = s.color; ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = sel ? '#fff' : shade(s.color, 0.7); ctx.lineWidth = sel ? 2 : 1.5; ctx.stroke();
+    }
   }
 
   drawCylinder(s, sel) {

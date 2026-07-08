@@ -49,7 +49,7 @@ export function defaultSource(type) {
     case 'sphere':   return { ...base, name: 'Planet',     dia: 12000 };
     case 'shell':    return { ...base, name: 'Shell',      dia: 16000, mass: 3e24 };
     case 'ring':     return { ...base, name: 'Ring',       dia: 30000, mass: 2e24 };
-    case 'disc':     return { ...base, name: 'Disc',       dia: 28000, mass: 3e24 };
+    case 'disc':     return { ...base, name: 'Disc',       dia: 28000, thick: 3000, mass: 3e24 };
     case 'cylinder': return { ...base, name: 'Cylinder',   dia: 14000, len: 26000, mass: 3e24 };
     case 'rod':      return { ...base, name: 'Rod',        len: 40000, mass: 1.5e24 };
     case 'box':      return { ...base, name: 'Slab',       size: [14000, 14000, 28000], mass: 3e24 };
@@ -88,7 +88,19 @@ export function buildSource(s) {
   if (s.type === 'ring') {
     s._rings = [{ a: km(s.dia) / 2, z: 0, m: s.mass }];
   } else if (s.type === 'disc') {
-    s._rings = discRings(km(s.dia) / 2, s.mass, 24, 0);
+    // A disc with a settable thickness: rings over the radius, stacked over the
+    // thickness (a single sheet when the thickness is ~0).
+    const Rr = km(s.dia) / 2, L = km(s.thick || 0), nr = 22;
+    s._rings = [];
+    if (L > 1) {
+      const nz = 4;
+      for (let k = 0; k < nz; k++) {
+        const z = -L / 2 + L * (k + 0.5) / nz;
+        for (const r of discRings(Rr, s.mass / nz, nr, z)) s._rings.push(r);
+      }
+    } else {
+      for (const r of discRings(Rr, s.mass, nr, 0)) s._rings.push(r);
+    }
   } else if (s.type === 'cylinder') {
     const Rr = km(s.dia) / 2, L = km(s.len), nz = 6, nr = 12;
     s._rings = [];
@@ -177,7 +189,7 @@ function bodyContains(s, q) {
   }
   if (s.type === 'cylinder' || s.type === 'disc') {
     const l = P.matTVec(s._R, P.vsub(q, s._origin));
-    const hl = s.type === 'cylinder' ? km(s.len) / 2 : km(s.dia) * 0.02;
+    const hl = s.type === 'cylinder' ? km(s.len) / 2 : km(s.thick || 0) / 2;
     return Math.hypot(l[0], l[1]) < km(s.dia) / 2 && Math.abs(l[2]) < hl;
   }
   return false;
@@ -190,7 +202,8 @@ function obbOf(s) {
   if (s.type === 'box') he = [km(s.size[0]) / 2, km(s.size[1]) / 2, km(s.size[2]) / 2];
   else if (s.type === 'sphere' || s.type === 'shell') { const r = km(s.dia) / 2; he = [r, r, r]; }
   else if (s.type === 'cylinder') { const r = km(s.dia) / 2; he = [r, r, km(s.len) / 2]; }
-  else if (s.type === 'disc' || s.type === 'ring') { const r = km(s.dia) / 2; he = [r, r, r * 0.02]; }
+  else if (s.type === 'disc') { const r = km(s.dia) / 2; he = [r, r, km(s.thick || 0) / 2]; }
+  else if (s.type === 'ring') { const r = km(s.dia) / 2; he = [r, r, r * 0.02]; }
   else if (s.type === 'rod') { he = [0, 0, km(s.len) / 2]; }
   else return null;                                  // point mass — no body
   const R = s._R;
@@ -257,15 +270,18 @@ export function forceOn(scene, target) {
       add(r, dm);
     }
   } else if (target.type === 'disc') {
-    const Rr = km(target.dia) / 2, nr = 14, nth = 36;
+    const Rr = km(target.dia) / 2, L = km(target.thick || 0), nz = L > 1 ? 3 : 1, nr = 12, nth = 28;
     let wsum = 0; for (let ir = 0; ir < nr; ir++) wsum += ir + 0.5;
-    for (let ir = 0; ir < nr; ir++) {
-      const rr = Rr * (ir + 0.5) / nr, ringM = target.mass * (ir + 0.5) / wsum, dm = ringM / nth;
-      for (let it = 0; it < nth; it++) {
-        const th = 2 * Math.PI * (it + 0.5) / nth;
-        const r = local([rr * Math.cos(th), rr * Math.sin(th), 0]);
-        if (inOther(r)) valid = false;
-        add(r, dm);
+    for (let iz = 0; iz < nz; iz++) {
+      const z = nz === 1 ? 0 : -L / 2 + L * (iz + 0.5) / nz;
+      for (let ir = 0; ir < nr; ir++) {
+        const rr = Rr * (ir + 0.5) / nr, ringM = (target.mass / nz) * (ir + 0.5) / wsum, dm = ringM / nth;
+        for (let it = 0; it < nth; it++) {
+          const th = 2 * Math.PI * (it + 0.5) / nth;
+          const r = local([rr * Math.cos(th), rr * Math.sin(th), z]);
+          if (inOther(r)) valid = false;
+          add(r, dm);
+        }
       }
     }
   } else if (target.type === 'cylinder') {
@@ -306,8 +322,8 @@ export function sourceExtent(s) {
     case 'box':      return 0.5 * Math.hypot(km(s.size[0]), km(s.size[1]), km(s.size[2]));
     case 'sphere':
     case 'shell':    return km(s.dia) / 2;
-    case 'ring':
-    case 'disc':     return km(s.dia) / 2;
+    case 'ring':     return km(s.dia) / 2;
+    case 'disc':     return Math.max(km(s.dia) / 2, km(s.thick || 0) / 2);
     case 'cylinder': return Math.max(km(s.dia) / 2, km(s.len) / 2);
     case 'rod':      return km(s.len) / 2;
     default:         return km(2000);   // point mass — small marker (~2000 km)

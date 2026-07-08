@@ -144,8 +144,8 @@ console.log('\n== Uniform box (Nagy closed form) ==');
 
 console.log('\n== Disc & cylinder (ring stacks) ==');
 {
-  // Disc on-axis vs analytic  g_z = −2πGσ(1 − z/√(z²+R²))
-  const disc = defaultSource('disc'); disc.dia = 30000; disc.mass = 3e24;
+  // Thin disc on-axis vs analytic  g_z = −2πGσ(1 − z/√(z²+R²))
+  const disc = defaultSource('disc'); disc.dia = 30000; disc.mass = 3e24; disc.thick = 0;
   const scD = new Scene(); scD.add(disc);
   const Rm = 15000 * 1000, sigma = disc.mass / (Math.PI * Rm * Rm);
   for (const z of [5e6, 2e7]) {
@@ -153,6 +153,10 @@ console.log('\n== Disc & cylinder (ring stacks) ==');
     const exp = -2 * Math.PI * G * sigma * (1 - z / Math.sqrt(z * z + Rm * Rm));
     check(`disc on-axis g_z (z=${z})`, rel(g[2], exp) < 2e-2, `${g[2]} vs ${exp}`);
   }
+  // A thick disc far away still reduces to a point mass.
+  const td = defaultSource('disc'); td.dia = 20000; td.thick = 8000; td.mass = 2e24;
+  const scT = new Scene(); scT.add(td);
+  check('thick disc far field → point mass', rel(vlen(scT.g([5e8, 0, 0])), G * td.mass / (5e8) ** 2) < 5e-3, '');
   // Cylinder far field → point mass
   const cyl = defaultSource('cylinder'); cyl.dia = 14000; cyl.len = 26000; cyl.mass = 3e24;
   const scC = new Scene(); scC.add(cyl);
