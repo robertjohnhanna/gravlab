@@ -1,6 +1,6 @@
 // main.js — app glue: scene management, UI panels, interaction, orbit sim.
 import * as P from './physics.js';
-import { Scene, defaultSource, buildSource, sourceExtent, massOf, BODIES } from './sources.js';
+import { Scene, defaultSource, buildSource, sourceExtent, massOf, BODIES, BODY_DIA } from './sources.js';
 import { Renderer, View, viridis } from './render.js';
 
 const scene = new Scene();
@@ -207,8 +207,8 @@ function updateParticleReadout() {
 // ---------------------------------------------------------------------------
 const paramDefs = {
   point:    [['mass']],
-  sphere:   [['mass'], ['Dia (km)', 'dia', 1000, 200000, 500]],
-  shell:    [['mass'], ['Dia (km)', 'dia', 1000, 200000, 500]],
+  sphere:   [['mass'], ['Dia (km)', 'dia', 100, 1500000, 500]],
+  shell:    [['mass'], ['Dia (km)', 'dia', 100, 1500000, 500]],
   ring:     [['mass'], ['Dia (km)', 'dia', 1000, 300000, 500]],
   disc:     [['mass'], ['Dia (km)', 'dia', 1000, 300000, 500]],
   cylinder: [['mass'], ['Dia (km)', 'dia', 1000, 200000, 500], ['Len (km)', 'len', 1000, 300000, 500]],
@@ -277,8 +277,9 @@ function addMassRow(el, s) {
   sel.addEventListener('change', () => {
     if (!sel.value) { s.body = ''; return; }
     s.body = sel.value; s.mass = BODIES[sel.value]; s.name = cleanBodyName(sel.value);
-    massInput.value = s.mass;
-    buildSource(s); buildList(); invalidateField();
+    // sphere/shell are actual celestial bodies — give them the real diameter too
+    if ((s.type === 'sphere' || s.type === 'shell') && BODY_DIA[sel.value]) s.dia = BODY_DIA[sel.value];
+    buildSource(s); buildList(); buildInspector(); fitView();   // refresh Dia field + frame it
   });
   row1.appendChild(sel); el.appendChild(row1);
 

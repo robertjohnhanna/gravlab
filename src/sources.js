@@ -17,6 +17,19 @@ export const BODIES = {
   'Jupiter (1.9e27)':1.898e27,
   'Sun (2.0e30)':    1.989e30,
 };
+// Real mean diameters [km] for the same named bodies, so choosing a preset sets
+// a physically-consistent size as well as a mass (for sphere / shell bodies).
+export const BODY_DIA = {
+  'Mountain (1e15)': 10,
+  'Asteroid (1e18)': 100,
+  'Ceres (9.4e20)':  940,
+  'Moon (7.3e22)':   3474,
+  'Mars (6.4e23)':   6779,
+  'Earth (6.0e24)':  12742,
+  'Neptune (1.0e26)':49244,
+  'Jupiter (1.9e27)':139820,
+  'Sun (2.0e30)':    1391000,
+};
 
 let _id = 1;
 export const nextId = () => _id++;
