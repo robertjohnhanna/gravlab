@@ -7,7 +7,7 @@ import {
   ringField, ringPot, rodField, rodPot, cuboidField, cuboidPot, verletStep,
   vadd, vsub, vscale, vlen, vcross,
 } from '../src/physics.js';
-import { Scene, defaultSource, sourceField, forceOn, massOf } from '../src/sources.js';
+import { Scene, defaultSource, sourceField, forceOn, massOf, BODIES, BODY_DIA } from '../src/sources.js';
 
 let passed = 0, failed = 0;
 function check(name, cond, extra = '') {
@@ -219,6 +219,50 @@ console.log('\n== Orbit integrator (velocity Verlet) ==');
   check('circular orbit keeps constant radius', (rMax - rMin) / r < 1e-3, `Δr/r=${((rMax - rMin) / r).toExponential(2)}`);
   check('orbit closes after one Kepler period', vlen(vsub(x, [r, 0, 0])) / r < 5e-3, `miss=${(vlen(vsub(x, [r, 0, 0])) / r).toExponential(2)}`);
   check('energy conserved', (eMax - eMin) / Math.abs(eMin) < 1e-4, `ΔE/E=${((eMax - eMin) / Math.abs(eMin)).toExponential(2)}`);
+}
+
+console.log('\n== Orbit energetics (escape & vis-viva) ==');
+{
+  const M = 6e24, r = 2e7;
+  const vesc = Math.sqrt(2 * G * M / r);
+  const eps = 0.5 * vesc * vesc - G * M / r;
+  check('escape speed → ε ≈ 0 (parabolic)', Math.abs(eps) / (G * M / r) < 1e-12, eps);
+
+  // Sub-circular tangential launch → bound ellipse; the measured semi-major
+  // axis (r_peri+r_apo)/2 must equal −GM/2ε (vis-viva / energy relation).
+  const accel = (x) => { const rl = vlen(x); return vscale(x, -G * M / (rl ** 3)); };
+  let x = [r, 0, 0], v = [0, 0.8 * Math.sqrt(G * M / r), 0];
+  const eps0 = 0.5 * vlen(v) ** 2 - G * M / vlen(x);
+  const aSemi = -G * M / (2 * eps0);
+  const Tell = 2 * Math.PI * Math.sqrt(aSemi ** 3 / (G * M));
+  const dt = Tell / 6000; let rmin = Infinity, rmax = 0, a0 = accel(x);
+  for (let n = 0; n < 6000; n++) { const s = verletStep(x, v, dt, accel, a0); x = s.x; v = s.v; a0 = s.a; const rl = vlen(x); rmin = Math.min(rmin, rl); rmax = Math.max(rmax, rl); }
+  check('vis-viva: semi-major axis = −GM/2ε', rel((rmin + rmax) / 2, aSemi) < 5e-3, `${(rmin + rmax) / 2} vs ${aSemi}`);
+}
+
+console.log('\n== Extended-body force reduces to point mass ==');
+{
+  const box = defaultSource('box'); box.size = [10000, 12000, 8000]; box.mass = 3e24; box.pos = [0, 0, 0];
+  const sph = defaultSource('sphere'); sph.dia = 6000; sph.mass = 5e24; sph.pos = [600000, 0, 0];   // far away
+  const sc = new Scene(); sc.add(box); sc.add(sph);
+  const fb = forceOn(sc, box), fs = forceOn(sc, sph);
+  const d = 600000 * 1000, expF = G * box.mass * sph.mass / (d * d);
+  check('box←sphere far force ≈ GM₁M₂/d²', rel(vlen(fb.F), expF) < 5e-3, `${vlen(fb.F)} vs ${expF}`);
+  check('third law holds for the extended body', vlen(vadd(fb.F, fs.F)) / vlen(fb.F) < 5e-3, '');
+}
+
+console.log('\n== Named-body presets are self-consistent ==');
+{
+  for (const key of ['Earth (6.0e24)', 'Jupiter (1.9e27)', 'Sun (2.0e30)']) {
+    const s = defaultSource('sphere'); s.mass = BODIES[key]; s.dia = BODY_DIA[key];
+    const sc = new Scene(); sc.add(s);
+    const R = BODY_DIA[key] * 1000 / 2;
+    check(`${key}: surface g = GM/R²`, rel(vlen(sc.g([R, 0, 0])), G * BODIES[key] / (R * R)) < 1e-9, '');
+  }
+  const e = defaultSource('sphere'); e.mass = BODIES['Earth (6.0e24)']; e.dia = BODY_DIA['Earth (6.0e24)'];
+  const sc = new Scene(); sc.add(e);
+  const g = vlen(sc.g([BODY_DIA['Earth (6.0e24)'] * 1000 / 2, 0, 0]));
+  check('Earth preset surface g ≈ 9.8 m/s²', Math.abs(g - 9.82) < 0.1, g);
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

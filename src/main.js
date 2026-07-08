@@ -205,15 +205,18 @@ function updateParticleReadout() {
 // ---------------------------------------------------------------------------
 // UI construction
 // ---------------------------------------------------------------------------
+// 'mass' → mass field with the named-body preset dropdown (only for whole
+// celestial bodies: point / sphere / shell). 'massonly' → a plain kg field for
+// extended shapes (a rod or ring is not "Jupiter").
 const paramDefs = {
   point:    [['mass']],
   sphere:   [['mass'], ['Dia (km)', 'dia', 100, 1500000, 500]],
   shell:    [['mass'], ['Dia (km)', 'dia', 100, 1500000, 500]],
-  ring:     [['mass'], ['Dia (km)', 'dia', 1000, 300000, 500]],
-  disc:     [['mass'], ['Dia (km)', 'dia', 1000, 300000, 500]],
-  cylinder: [['mass'], ['Dia (km)', 'dia', 1000, 200000, 500], ['Len (km)', 'len', 1000, 300000, 500]],
-  rod:      [['mass'], ['Len (km)', 'len', 1000, 400000, 500]],
-  box:      [['mass'], ['W (km)', 'size.0', 1000, 200000, 500], ['H (km)', 'size.1', 1000, 200000, 500], ['L (km)', 'size.2', 1000, 200000, 500]],
+  ring:     [['massonly'], ['Dia (km)', 'dia', 1000, 300000, 500]],
+  disc:     [['massonly'], ['Dia (km)', 'dia', 1000, 300000, 500]],
+  cylinder: [['massonly'], ['Dia (km)', 'dia', 1000, 200000, 500], ['Len (km)', 'len', 1000, 300000, 500]],
+  rod:      [['massonly'], ['Len (km)', 'len', 1000, 400000, 500]],
+  box:      [['massonly'], ['W (km)', 'size.0', 1000, 200000, 500], ['H (km)', 'size.1', 1000, 200000, 500], ['L (km)', 'size.2', 1000, 200000, 500]],
 };
 const commonDefs = [
   ['X (km)', 'pos.0', -250000, 250000, 500],
@@ -255,7 +258,8 @@ function buildInspector() {
   };
 
   for (const def of (paramDefs[s.type] || [])) {
-    if (def[0] === 'mass') { addMassRow(el, s); continue; }
+    if (def[0] === 'mass') { addMassRow(el, s, true); continue; }
+    if (def[0] === 'massonly') { addMassRow(el, s, false); continue; }
     addRow(...def);
   }
   const hr = document.createElement('hr'); el.appendChild(hr);
@@ -266,29 +270,32 @@ function buildInspector() {
 // Mass: a named-body dropdown that seeds the value (and renames the object),
 // plus a free kg field. The dropdown selection persists on the source (s.body).
 const cleanBodyName = (key) => key.replace(/\s*\(.*\)$/, '');
-function addMassRow(el, s) {
-  const row1 = document.createElement('label'); row1.className = 'row';
-  row1.innerHTML = '<span>Body</span>';
-  const sel = document.createElement('select'); sel.id = 'bodySel';
-  sel.innerHTML = '<option value="">— preset —</option>';
-  for (const name of Object.keys(BODIES)) sel.innerHTML += `<option value="${name}">${name}</option>`;
-  sel.value = s.body || '';                         // persist the chosen preset
+function addMassRow(el, s, withPreset) {
+  let sel = null;
   const massInput = document.createElement('input');
-  sel.addEventListener('change', () => {
-    if (!sel.value) { s.body = ''; return; }
-    s.body = sel.value; s.mass = BODIES[sel.value]; s.name = cleanBodyName(sel.value);
-    // sphere/shell are actual celestial bodies — give them the real diameter too
-    if ((s.type === 'sphere' || s.type === 'shell') && BODY_DIA[sel.value]) s.dia = BODY_DIA[sel.value];
-    buildSource(s); buildList(); buildInspector(); fitView();   // refresh Dia field + frame it
-  });
-  row1.appendChild(sel); el.appendChild(row1);
+  if (withPreset) {
+    const row1 = document.createElement('label'); row1.className = 'row';
+    row1.innerHTML = '<span>Body</span>';
+    sel = document.createElement('select'); sel.id = 'bodySel';
+    sel.innerHTML = '<option value="">— preset —</option>';
+    for (const name of Object.keys(BODIES)) sel.innerHTML += `<option value="${name}">${name}</option>`;
+    sel.value = s.body || '';                       // persist the chosen preset
+    sel.addEventListener('change', () => {
+      if (!sel.value) { s.body = ''; return; }
+      s.body = sel.value; s.mass = BODIES[sel.value]; s.name = cleanBodyName(sel.value);
+      // sphere/shell are actual celestial bodies — give them the real diameter too
+      if ((s.type === 'sphere' || s.type === 'shell') && BODY_DIA[sel.value]) s.dia = BODY_DIA[sel.value];
+      buildSource(s); buildList(); buildInspector(); fitView();   // refresh Dia field + frame it
+    });
+    row1.appendChild(sel); el.appendChild(row1);
+  }
 
   const row2 = document.createElement('label'); row2.className = 'row';
   row2.innerHTML = '<span>Mass <span class="lc">(kg)</span></span>';
   massInput.type = 'number'; massInput.value = s.mass; massInput.step = '1e23'; massInput.min = 0;
   massInput.addEventListener('input', () => {
     const n = parseFloat(massInput.value); if (isNaN(n) || n < 0) return;
-    s.mass = n; s.body = ''; sel.value = '';        // no longer a named preset
+    s.mass = n; s.body = ''; if (sel) sel.value = '';   // no longer a named preset
     buildSource(s); invalidateField();
   });
   row2.appendChild(massInput); el.appendChild(row2);
