@@ -545,10 +545,16 @@ function launchParticle() {
   calibrateTime();
   const speed = (Math.abs(parseFloat(document.getElementById('pSpeed').value)) || 5) * 1000;   // km/s -> m/s
   const mass = Math.max(0, parseFloat(document.getElementById('pMass').value)) || 1;            // kg
-  // Launch from the field-probe pin (falls back to the left edge if unset),
-  // moving in the +horizontal direction of the current view plane.
+  // Launch from the field-probe pin, heading in the direction its arrow points
+  // (the in-plane field direction there). Falls back to the view edge, moving
+  // right, when the probe is unset or sits where the field vanishes.
   const pos = probe ? probe.slice() : view.worldFromUV(view.center[0] - view.spanU * 0.42, view.center[1]);
-  const vel = [0, 0, 0]; vel[view.uAxis] = speed;
+  const dir = [0, 0, 0]; dir[view.uAxis] = 1;
+  if (probe) {
+    const g = scene.g(probe), cu = g[view.uAxis], cv = g[view.vAxis], m = Math.hypot(cu, cv);
+    if (m > 1e-30) { dir[view.uAxis] = cu / m; dir[view.vAxis] = cv / m; }
+  }
+  const vel = dir.map((c) => c * speed);
   particles.push({ x: pos, v: vel, mass, trail: [pos.slice()], color: '#ffd27a', alive: true });
   startSim();
 }
