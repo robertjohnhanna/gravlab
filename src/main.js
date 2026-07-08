@@ -13,8 +13,7 @@ let probe = null;             // last probed world point
 let aimDir = [1, 0];          // launch aim: in-plane unit vector [u, v] (screen: +u right, +v up)
 const particles = [];         // test masses: { x, v, trail:[], color, alive }
 let simRunning = false;
-const FIELD_LEN = 22;         // px — the small field-direction arrow
-const AIM_LEN = 48;           // px — the longer red shooter line
+const AIM_LEN = 48;           // px — the amber aim pointer length
 // Draw a line with a filled arrowhead from (x0,y0) to (x1,y1).
 function drawArrow(ctx, x0, y0, x1, y1, color, w, head) {
   ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round';
@@ -114,23 +113,13 @@ function drawProbe() {
   const s = view.toScreen(probe);
   const g = scene.g(probe);
   const phi = scene.potential(probe);
-  const comp = view.planeComps(g);
   const mag = P.vlen(g);
-  const m2 = Math.hypot(comp.u, comp.v) || 1;
-  // Small amber arrow: the field (force) direction here — informational.
-  if (mag > 0) {
-    const ex = s[0] + comp.u / m2 * FIELD_LEN, ey = s[1] - comp.v / m2 * FIELD_LEN;
-    drawArrow(ctx, s[0], s[1], ex, ey, '#e9b44c', 2, 5);
-  }
-  // Longer red line with a draggable tip (no arrowhead): the launch aim. It
-  // stays where you turn it — the test mass fires along this direction.
+  // Amber aim pointer with a draggable tip — points the projectile launch and
+  // stays where you turn it (drag the tip to aim).
   const tip = [s[0] + aimDir[0] * AIM_LEN, s[1] - aimDir[1] * AIM_LEN];
-  ctx.strokeStyle = '#ff4d4d'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(s[0], s[1]); ctx.lineTo(tip[0], tip[1]); ctx.stroke();
-  ctx.lineCap = 'butt';
-  ctx.fillStyle = '#ff4d4d'; ctx.beginPath(); ctx.arc(tip[0], tip[1], 4.5, 0, 7); ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(tip[0], tip[1], 4.5, 0, 7); ctx.stroke();
+  drawArrow(ctx, s[0], s[1], tip[0], tip[1], '#e9b44c', 2.5, 7);
+  ctx.fillStyle = '#e9b44c'; ctx.beginPath(); ctx.arc(tip[0], tip[1], 4, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(tip[0], tip[1], 4, 0, 7); ctx.stroke();
   // probe pin: ring + centre dot
   ctx.strokeStyle = '#e9b44c'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(s[0], s[1], 9, 0, 7); ctx.stroke();
