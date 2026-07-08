@@ -147,8 +147,9 @@ function drawParticles() {
     }
     ctx.stroke();
     const s = view.toScreen(p.x);
+    const rr = Math.max(3, Math.min(7, 3 + 0.5 * Math.max(0, Math.log10(Math.max(1, p.mass)) - 2)));
     ctx.fillStyle = p.alive ? p.color : '#8a8f98';
-    ctx.beginPath(); ctx.arc(s[0], s[1], 4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(s[0], s[1], rr, 0, 7); ctx.fill();
     if (!p.alive) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(); }
   }
 }
@@ -190,12 +191,13 @@ function updateParticleReadout() {
   const p = particles[particles.length - 1];
   if (!p) return;
   const speed = P.vlen(p.v);
-  const ke = 0.5 * speed * speed;               // per unit mass
   const phi = scene.potential(p.x);             // per unit mass
-  const eps = ke + phi;                         // specific orbital energy
+  const eps = 0.5 * speed * speed + phi;        // specific orbital energy
+  const KEj = 0.5 * p.mass * speed * speed;     // kinetic energy [J]
   const bound = eps < 0;
   document.getElementById('partReadout').innerHTML =
     `<div><b>v</b> ${(speed / 1000).toFixed(2)} km/s</div>` +
+    `<div><b>KE</b> ${fmtMag(KEj, 'J')}</div>` +
     `<div><b>ε</b> ${(eps >= 0 ? '+' : '−') + fmtMag(Math.abs(eps), 'J/kg')}</div>` +
     `<div>${p.alive ? (bound ? 'bound orbit' : 'unbound (escape)') : 'captured / lost'}</div>`;
 }
@@ -261,21 +263,34 @@ function buildInspector() {
   updateForceTile();
 }
 
-// Mass: a named-body dropdown that seeds the value, plus a free kg field.
+// Mass: a named-body dropdown that seeds the value (and renames the object),
+// plus a free kg field. The dropdown selection persists on the source (s.body).
+const cleanBodyName = (key) => key.replace(/\s*\(.*\)$/, '');
 function addMassRow(el, s) {
   const row1 = document.createElement('label'); row1.className = 'row';
   row1.innerHTML = '<span>Body</span>';
   const sel = document.createElement('select'); sel.id = 'bodySel';
   sel.innerHTML = '<option value="">— preset —</option>';
-  for (const name of Object.keys(BODIES)) sel.innerHTML += `<option value="${BODIES[name]}">${name}</option>`;
-  sel.addEventListener('change', () => { if (!sel.value) return; s.mass = parseFloat(sel.value); buildSource(s); buildInspector(); invalidateField(); });
+  for (const name of Object.keys(BODIES)) sel.innerHTML += `<option value="${name}">${name}</option>`;
+  sel.value = s.body || '';                         // persist the chosen preset
+  const massInput = document.createElement('input');
+  sel.addEventListener('change', () => {
+    if (!sel.value) { s.body = ''; return; }
+    s.body = sel.value; s.mass = BODIES[sel.value]; s.name = cleanBodyName(sel.value);
+    massInput.value = s.mass;
+    buildSource(s); buildList(); invalidateField();
+  });
   row1.appendChild(sel); el.appendChild(row1);
 
   const row2 = document.createElement('label'); row2.className = 'row';
   row2.innerHTML = '<span>Mass <span class="lc">(kg)</span></span>';
-  const input = document.createElement('input'); input.type = 'number'; input.value = s.mass; input.step = '1e23'; input.min = 0;
-  input.addEventListener('input', () => { const n = parseFloat(input.value); if (isNaN(n) || n < 0) return; s.mass = n; buildSource(s); invalidateField(); });
-  row2.appendChild(input); el.appendChild(row2);
+  massInput.type = 'number'; massInput.value = s.mass; massInput.step = '1e23'; massInput.min = 0;
+  massInput.addEventListener('input', () => {
+    const n = parseFloat(massInput.value); if (isNaN(n) || n < 0) return;
+    s.mass = n; s.body = ''; sel.value = '';        // no longer a named preset
+    buildSource(s); invalidateField();
+  });
+  row2.appendChild(massInput); el.appendChild(row2);
 }
 
 // Force/torque data tile (right panel), kept current on any scene change.
@@ -521,9 +536,12 @@ function calibrateTime() {
 function launchParticle() {
   calibrateTime();
   const speed = (Math.abs(parseFloat(document.getElementById('pSpeed').value)) || 5) * 1000;   // km/s -> m/s
-  const pos = view.worldFromUV(view.center[0] - view.spanU * 0.42, view.center[1]);
+  const mass = Math.max(0, parseFloat(document.getElementById('pMass').value)) || 1;            // kg
+  // Launch from the field-probe pin (falls back to the left edge if unset),
+  // moving in the +horizontal direction of the current view plane.
+  const pos = probe ? probe.slice() : view.worldFromUV(view.center[0] - view.spanU * 0.42, view.center[1]);
   const vel = [0, 0, 0]; vel[view.uAxis] = speed;
-  particles.push({ x: pos, v: vel, trail: [pos.slice()], color: '#ffd27a', alive: true });
+  particles.push({ x: pos, v: vel, mass, trail: [pos.slice()], color: '#ffd27a', alive: true });
   startSim();
 }
 document.getElementById('launch').addEventListener('click', launchParticle);

@@ -56,7 +56,7 @@ export class Renderer {
     this.grid = null;
     this.heat = null;               // offscreen grid-resolution heatmap
     this.field = document.createElement('canvas'); // offscreen full-res field layer
-    this.opts = { heatmap: true, lines: true, equipotential: false, vectors: false, grid: true, gridStep: 34 };
+    this.opts = { heatmap: true, lines: false, equipotential: false, vectors: true, grid: true, gridStep: 34 };
     this.range = { min: -6, max: 0 };
   }
 
