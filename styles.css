@@ -26,6 +26,8 @@ header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .3px; 
 header h1 small { color: var(--dim); font-weight: 400; font-size: 12px; }
 .topctrl { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .topctrl label { color: var(--dim); display: flex; gap: 5px; align-items: center; }
+.topctrl input[type=number] { background: var(--panel2); border: 1px solid var(--line); color: var(--txt); border-radius: 5px; padding: 3px 6px; }
+.topctrl input[type=number]:focus { outline: none; border-color: var(--accent); }
 
 #app { display: grid; grid-template-columns: 232px 1fr 284px; flex: 1 1 auto; min-height: 0; }
 @media (max-width: 1200px) { #app { grid-template-columns: 200px 1fr 240px; } }
@@ -71,11 +73,26 @@ button.danger { color: var(--danger); padding: 2px 7px; }
 .chk { display: flex; align-items: center; gap: 7px; padding: 3px 0; color: var(--dim); }
 .chk input { accent-color: var(--accent); }
 
-.row { display: grid; grid-template-columns: 1fr 78px; gap: 6px 8px; align-items: center; margin: 5px 0; color: var(--dim); }
-.row span { font-size: 12px; }
-.row input[type=number], .row select { grid-column: 2; background: var(--panel2); border: 1px solid var(--line); color: var(--txt); border-radius: 5px; padding: 3px 5px; width: 100%; }
-.row input[type=range] { grid-column: 1 / 3; accent-color: var(--accent); width: 100%; }
+.row { display: grid; grid-template-columns: 1fr 78px; gap: 3px 8px; align-items: center; margin: 9px 0; color: var(--dim); }
+.row > span { font-size: 11.5px; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row input[type=number], .row select { grid-column: 2; background: var(--panel2); border: 1px solid var(--line); color: var(--txt); border-radius: 6px; padding: 4px 7px; width: 100%; }
+.row input[type=number] { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+.row input[type=number]:focus, .row select:focus { outline: none; border-color: var(--accent); }
+.row input[type=range] { grid-column: 1 / 3; width: 100%; }
 .row select { grid-column: 1 / 3; }
+/* labelled group dividers in the inspector */
+.grp { display: flex; align-items: center; gap: 8px; margin: 14px 0 2px; font-size: 10px; font-weight: 650; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
+.grp::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+/* slim scientific sliders — every range input, inspector and launch controls alike */
+input[type=range] { -webkit-appearance: none; appearance: none; height: 16px; margin: 0; background: transparent; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--accent); margin-top: -4.5px; border: 2px solid var(--bg); }
+input[type=range]:hover::-webkit-slider-thumb, input[type=range]:active::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(233, 180, 76, .18); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+input[type=range]::-moz-range-thumb { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+/* the number box is the fine control, the slider the coarse one — no native spinners */
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
 hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
 .hint { color: var(--dim); font-size: 11.5px; font-style: italic; }
 
