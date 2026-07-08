@@ -170,6 +170,12 @@ let frameTime = 200;            // sim-seconds advanced per animation frame
 let baseDt = 4;                 // s per sub-step cap (adaptively shrunk)
 let simInited = false;
 let fieldSkip = 0;              // throttles the heatmap recompute during playback
+let timeRate = 1;              // playback time-rate multiplier (rate slider)
+// Show/hide the Play↔Pause label and the rate slider (which only appears while running).
+function setRunningUI(running) {
+  document.getElementById('pauseSim').textContent = running ? 'Pause' : 'Play';
+  document.getElementById('rateRow').style.display = running ? 'flex' : 'none';
+}
 
 // Physical radius [m] of a body — sets the contact scale for close encounters
 // and the projectile's on-screen size. Rock density ~3000 kg/m³ for projectiles.
@@ -229,9 +235,10 @@ function simStep() {
   const trailGap = view.spanU * 0.004;
   const projs = particles.filter((p) => p.alive);
   const srcs = scene.sources.filter((s) => s.visible);
+  const ft = frameTime * timeRate;                 // user-adjustable playback pace
   let tacc = 0, sub = 0;
-  while (tacc < frameTime && sub < 4000) {
-    let dt = Math.min(adaptiveDt(bodies), frameTime - tacc);
+  while (tacc < ft && sub < 4000) {
+    let dt = Math.min(adaptiveDt(bodies), ft - tacc);
     if (!(dt > 0)) break;
     P.nbodyStep(bodies, dt);
     tacc += dt; sub++;
@@ -273,7 +280,7 @@ function initSim() {
 }
 function startSim() {
   if (!simInited) initSim();
-  document.getElementById('pauseSim').textContent = 'Pause';
+  setRunningUI(true);
   if (!simRunning) { simRunning = true; requestFrame(); }
 }
 function resetSim() {
@@ -281,7 +288,7 @@ function resetSim() {
   for (const s of scene.sources) { if (s._mass0 != null) s.mass = s._mass0; }   // undo accretion
   scene.sources.forEach(buildSource);                       // restore placed positions (& ring masses)
   for (const s of scene.sources) s._v = [0, 0, 0];
-  document.getElementById('pauseSim').textContent = 'Play';
+  setRunningUI(false);
   document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
   invalidateField();
 }
@@ -637,7 +644,7 @@ window.addEventListener('keydown', (e) => {
 
 document.getElementById('clearAll').addEventListener('click', () => {
   scene.sources = []; selectedId = null; particles.length = 0; simRunning = false; simInited = false;
-  document.getElementById('pauseSim').textContent = 'Play';
+  setRunningUI(false);
   document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
   buildList(); buildInspector(); invalidateField();
 });
@@ -677,9 +684,17 @@ function launchParticle() {
 }
 document.getElementById('launch').addEventListener('click', launchParticle);
 document.getElementById('clearParts').addEventListener('click', resetSim);
-document.getElementById('pauseSim').addEventListener('click', (e) => {
-  if (simRunning) { simRunning = false; e.target.textContent = 'Play'; }
+document.getElementById('pauseSim').addEventListener('click', () => {
+  if (simRunning) { simRunning = false; setRunningUI(false); }
   else { startSim(); }
+});
+// Playback time-rate slider (log scale, 0.05×…20×, 1× centred). Shown only
+// while running (setRunningUI); the chosen rate persists across plays.
+const rateSlider = document.getElementById('rateSlider');
+rateSlider.addEventListener('input', () => {
+  timeRate = 0.05 * Math.pow(400, parseFloat(rateSlider.value) / 100);
+  const txt = timeRate < 1 ? timeRate.toFixed(2) : timeRate < 10 ? timeRate.toFixed(1) : timeRate.toFixed(0);
+  document.getElementById('rateVal').textContent = txt + '×';
 });
 
 // ---- presets / scenarios ----------------------------------------------
@@ -764,7 +779,7 @@ for (const name of Object.keys(presets)) presetSel.innerHTML += `<option value="
 presetSel.addEventListener('change', () => {
   if (!presets[presetSel.value]) return;
   particles.length = 0; simRunning = false; simInited = false;
-  document.getElementById('pauseSim').textContent = 'Play';
+  setRunningUI(false);
   document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
   const wantSel = presets[presetSel.value]();
   scene.rebuild();
