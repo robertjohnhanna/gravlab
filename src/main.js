@@ -170,11 +170,27 @@ let frameTime = 200;            // sim-seconds advanced per animation frame
 let baseDt = 4;                 // s per sub-step cap (adaptively shrunk)
 let simInited = false;
 let fieldSkip = 0;              // throttles the heatmap recompute during playback
-let timeRate = 1;              // playback time-rate multiplier (rate slider)
+// Two independent playback rates: one for scenario playback, one that takes over
+// while a launched body is in play. (They share one physical clock — bodies
+// interact — so only the active one applies at a time; each remembers its value.)
+let scenarioRate = 1, launchRate = 1, lastLaunchMode = false;
+const launchMode = () => particles.some((p) => p.alive);
+const activeRate = () => (launchMode() ? launchRate : scenarioRate);
+const fmtRate = (r) => (r < 1 ? r.toFixed(2) : r < 10 ? r.toFixed(1) : r.toFixed(0)) + '×';
+const rateToSlider = (r) => 100 * Math.log(r / 0.05) / Math.log(400);
+// Sync the rate row's label, slider thumb and readout to the active mode's rate.
+function refreshRateRow() {
+  const lm = launchMode();
+  document.getElementById('rateLabel').textContent = lm ? 'Launch' : 'Scenario';
+  const r = lm ? launchRate : scenarioRate;
+  document.getElementById('rateSlider').value = rateToSlider(r);
+  document.getElementById('rateVal').textContent = fmtRate(r);
+}
 // Show/hide the Play↔Pause label and the rate slider (which only appears while running).
 function setRunningUI(running) {
   document.getElementById('pauseSim').textContent = running ? 'Pause' : 'Play';
   document.getElementById('rateRow').style.display = running ? 'flex' : 'none';
+  if (running) refreshRateRow();
 }
 
 // Physical radius [m] of a body — sets the contact scale for close encounters
@@ -235,7 +251,7 @@ function simStep() {
   const trailGap = view.spanU * 0.004;
   const projs = particles.filter((p) => p.alive);
   const srcs = scene.sources.filter((s) => s.visible);
-  const ft = frameTime * timeRate;                 // user-adjustable playback pace
+  const ft = frameTime * activeRate();             // user-adjustable playback pace (scenario vs launch)
   let tacc = 0, sub = 0;
   while (tacc < ft && sub < 4000) {
     let dt = Math.min(adaptiveDt(bodies), ft - tacc);
@@ -252,6 +268,8 @@ function simStep() {
   const com = comOf(bodies);
   for (const p of projs) if (P.vlen(P.vsub(p.x, com)) > view.spanU * 12) p.alive = false;   // escaped the view
   for (const p of particles) if (p.trail.length > 5000) p.trail.splice(0, p.trail.length - 5000);
+  const lm = launchMode();
+  if (lm !== lastLaunchMode) { lastLaunchMode = lm; refreshRateRow(); }   // switch to the other rate
   updateParticleReadout();
   // Bodies moved → refresh the field, but only every other frame: the heatmap is
   // expensive (per-pixel × every source), while the body overlay redraws each
@@ -698,9 +716,9 @@ document.getElementById('pauseSim').addEventListener('click', () => {
 // while running (setRunningUI); the chosen rate persists across plays.
 const rateSlider = document.getElementById('rateSlider');
 rateSlider.addEventListener('input', () => {
-  timeRate = 0.05 * Math.pow(400, parseFloat(rateSlider.value) / 100);
-  const txt = timeRate < 1 ? timeRate.toFixed(2) : timeRate < 10 ? timeRate.toFixed(1) : timeRate.toFixed(0);
-  document.getElementById('rateVal').textContent = txt + '×';
+  const r = 0.05 * Math.pow(400, parseFloat(rateSlider.value) / 100);
+  if (launchMode()) launchRate = r; else scenarioRate = r;   // adjust the active mode's rate
+  document.getElementById('rateVal').textContent = fmtRate(r);
 });
 
 // ---- presets / scenarios ----------------------------------------------
