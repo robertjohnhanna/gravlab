@@ -10,8 +10,21 @@ const renderer = new Renderer(canvas, scene, view);
 
 let selectedId = null;
 let probe = null;             // last probed world point
+let aimDir = [1, 0];          // launch aim: in-plane unit vector [u, v] (screen: +u right, +v up)
 const particles = [];         // test masses: { x, v, trail:[], color, alive }
 let simRunning = false;
+const FIELD_LEN = 22;         // px — the small field-direction arrow
+const AIM_LEN = 48;           // px — the longer red shooter line
+// Draw a line with a filled arrowhead from (x0,y0) to (x1,y1).
+function drawArrow(ctx, x0, y0, x1, y1, color, w, head) {
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  const a = Math.atan2(y1 - y0, x1 - x0);
+  ctx.beginPath(); ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - head * Math.cos(a - 0.5), y1 - head * Math.sin(a - 0.5));
+  ctx.lineTo(x1 - head * Math.cos(a + 0.5), y1 - head * Math.sin(a + 0.5));
+  ctx.closePath(); ctx.fill(); ctx.lineCap = 'butt';
+}
 
 // ---- field unit display ------------------------------------------------
 // g in m/s²; 1 Gal = 1e-2 m/s² (the gravimetry unit), so 1 m/s² = 1e5 mGal.
@@ -92,13 +105,24 @@ function drawProbe() {
   const comp = view.planeComps(g);
   const mag = P.vlen(g);
   const m2 = Math.hypot(comp.u, comp.v) || 1;
-  const len = 34;
-  const ex = s[0] + comp.u / m2 * len, ey = s[1] - comp.v / m2 * len;
-  ctx.strokeStyle = '#e9b44c'; ctx.fillStyle = '#e9b44c'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(s[0], s[1]); ctx.lineTo(ex, ey); ctx.stroke();
-  ctx.lineWidth = 2;
+  // Small amber arrow: the field (force) direction here — informational.
+  if (mag > 0) {
+    const ex = s[0] + comp.u / m2 * FIELD_LEN, ey = s[1] - comp.v / m2 * FIELD_LEN;
+    drawArrow(ctx, s[0], s[1], ex, ey, '#e9b44c', 2, 5);
+  }
+  // Longer red line with a draggable tip (no arrowhead): the launch aim. It
+  // stays where you turn it — the test mass fires along this direction.
+  const tip = [s[0] + aimDir[0] * AIM_LEN, s[1] - aimDir[1] * AIM_LEN];
+  ctx.strokeStyle = '#ff4d4d'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(s[0], s[1]); ctx.lineTo(tip[0], tip[1]); ctx.stroke();
+  ctx.lineCap = 'butt';
+  ctx.fillStyle = '#ff4d4d'; ctx.beginPath(); ctx.arc(tip[0], tip[1], 4.5, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(tip[0], tip[1], 4.5, 0, 7); ctx.stroke();
+  // probe pin: ring + centre dot
+  ctx.strokeStyle = '#e9b44c'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(s[0], s[1], 9, 0, 7); ctx.stroke();
-  ctx.beginPath(); ctx.arc(s[0], s[1], 2.5, 0, 7); ctx.fill();
+  ctx.fillStyle = '#e9b44c'; ctx.beginPath(); ctx.arc(s[0], s[1], 2.5, 0, 7); ctx.fill();
   const u = UNITS[fieldUnit];
   document.getElementById('probeReadout').innerHTML =
     `<div><b>|g|</b> ${fmtField(mag)}</div>` +
@@ -432,6 +456,14 @@ const pointers = new Map();
 let pinch = null;
 const localXY = (e) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 const nearProbe = (sx, sy) => { if (!probe) return false; const p = view.toScreen(probe); return Math.hypot(p[0] - sx, p[1] - sy) < 20; };
+const aimTipScreen = () => { if (!probe) return null; const p = view.toScreen(probe); return [p[0] + aimDir[0] * AIM_LEN, p[1] - aimDir[1] * AIM_LEN]; };
+const nearAimTip = (sx, sy) => { const t = aimTipScreen(); return t && Math.hypot(t[0] - sx, t[1] - sy) < 16; };
+// Point the aim from the probe pin toward a screen position (unit vector, +v up).
+function setAimTo(sx, sy) {
+  const p = view.toScreen(probe);
+  const du = sx - p[0], dv = -(sy - p[1]), L = Math.hypot(du, dv) || 1;
+  aimDir = [du / L, dv / L];
+}
 
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
@@ -441,6 +473,7 @@ canvas.addEventListener('pointerdown', (e) => {
     pinch = { dist: Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]) || 1, span: view.spanU };
     dragMode = null; return;
   }
+  if (nearAimTip(sx, sy)) { dragMode = 'aim'; setAimTo(sx, sy); canvas.style.cursor = 'grabbing'; requestDraw(); return; }
   if (nearProbe(sx, sy)) { dragMode = 'probe'; canvas.style.cursor = 'grabbing'; return; }
   const hit = pickSource(sx, sy);
   if (hit) {
@@ -467,7 +500,9 @@ canvas.addEventListener('pointermove', (e) => {
     view.center[1] += before[view.vAxis] - after[view.vAxis];
     invalidateField(); return;
   }
-  if (dragMode === 'probe') {
+  if (dragMode === 'aim') {
+    setAimTo(sx, sy); requestDraw();
+  } else if (dragMode === 'probe') {
     probe = view.toWorld(sx, sy); requestDraw();
   } else if (dragMode === 'pan') {
     view.center[0] = dragStart[2] - (sx - dragStart[0]) / view.scale;
@@ -481,7 +516,7 @@ canvas.addEventListener('pointermove', (e) => {
     s.pos[view.vAxis] = maybeSnap(dragObjStart[view.vAxis] + dv);
     buildSource(s); invalidateField();
   } else if (e.pointerType === 'mouse') {
-    canvas.style.cursor = nearProbe(sx, sy) || pickSource(sx, sy) ? 'grab' : 'crosshair';
+    canvas.style.cursor = nearAimTip(sx, sy) || nearProbe(sx, sy) || pickSource(sx, sy) ? 'grab' : 'crosshair';
   }
 });
 function endPointer(e) {
@@ -545,15 +580,10 @@ function launchParticle() {
   calibrateTime();
   const speed = (Math.abs(parseFloat(document.getElementById('pSpeed').value)) || 5) * 1000;   // km/s -> m/s
   const mass = Math.max(0, parseFloat(document.getElementById('pMass').value)) || 1;            // kg
-  // Launch from the field-probe pin, heading in the direction its arrow points
-  // (the in-plane field direction there). Falls back to the view edge, moving
-  // right, when the probe is unset or sits where the field vanishes.
+  // Launch from the field-probe pin, along the red shooter aim (which stays
+  // where the user turned it). Falls back to the view edge when unset.
   const pos = probe ? probe.slice() : view.worldFromUV(view.center[0] - view.spanU * 0.42, view.center[1]);
-  const dir = [0, 0, 0]; dir[view.uAxis] = 1;
-  if (probe) {
-    const g = scene.g(probe), cu = g[view.uAxis], cv = g[view.vAxis], m = Math.hypot(cu, cv);
-    if (m > 1e-30) { dir[view.uAxis] = cu / m; dir[view.vAxis] = cv / m; }
-  }
+  const dir = [0, 0, 0]; dir[view.uAxis] = aimDir[0]; dir[view.vAxis] = aimDir[1];
   const vel = dir.map((c) => c * speed);
   particles.push({ x: pos, v: vel, mass, trail: [pos.slice()], color: '#ffd27a', alive: true });
   startSim();
