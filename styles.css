@@ -5,6 +5,10 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* Kill double-tap-to-zoom (and its ~300ms tap delay) on the UI chrome, while
+   still allowing pinch-to-zoom for accessibility. The canvas opts out below
+   with touch-action: none since it drives its own pinch/pan gestures. */
+html { touch-action: manipulation; }
 body {
   background: var(--bg); color: var(--txt); font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden;
