@@ -61,6 +61,7 @@ function resize() {
   canvas.width = w * dpr; canvas.height = h * dpr;
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   renderer.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  renderer.dpr = dpr;                            // field layer renders at device resolution
   return true;
 }
 let resizeTimer = null;
@@ -72,12 +73,13 @@ window.addEventListener('resize', () => {
 });
 
 // ---- draw loop ---------------------------------------------------------
-let gridDirty = false, layersDirty = false, frameQueued = false;
+let gridDirty = false, layersDirty = false, forceDirty = false, frameQueued = false;
 function tick() {
   frameQueued = false;
   if (simRunning) simStep();                       // advance the N-body system first (moves bodies)
   if (gridDirty) { renderer.computeGrid(simRunning ? 96 : 150, simRunning); renderer.renderField(); gridDirty = layersDirty = false; }
   else if (layersDirty) { renderer.renderField(); layersDirty = false; }
+  if (forceDirty) { computeForceTile(); forceDirty = false; }
   draw();
   if (simRunning) requestFrame();
 }
@@ -93,6 +95,9 @@ function draw() {
 function requestDraw() { requestFrame(); }
 function invalidateField() { gridDirty = true; updateForceTile(); requestFrame(); }
 function invalidateLayers() { layersDirty = true; requestFrame(); }
+// Write innerHTML only when the content changed — the readouts refresh every
+// frame during playback and identical writes just force needless DOM work.
+function setHTML(el, html) { if (el._html !== html) { el._html = html; el.innerHTML = html; } }
 
 // ---- probe overlay -----------------------------------------------------
 // Keep the probe pin (and its shooter reach) inside the viewport, so panning or
@@ -111,8 +116,7 @@ function drawProbe() {
   clampProbe();
   const ctx = renderer.ctx;
   const s = view.toScreen(probe);
-  const g = scene.g(probe);
-  const phi = scene.potential(probe);
+  const { g, phi } = scene.sample(probe);        // one pass: both g and Φ
   const mag = P.vlen(g);
   // Amber aim pointer with a draggable tip — points the projectile launch and
   // stays where you turn it (drag the tip to aim).
@@ -125,10 +129,11 @@ function drawProbe() {
   ctx.beginPath(); ctx.arc(s[0], s[1], 9, 0, 7); ctx.stroke();
   ctx.fillStyle = '#e9b44c'; ctx.beginPath(); ctx.arc(s[0], s[1], 2.5, 0, 7); ctx.fill();
   const u = UNITS[fieldUnit];
-  document.getElementById('probeReadout').innerHTML =
+  const sign = phi < 0 ? '−' : phi > 0 ? '+' : '';
+  setHTML(document.getElementById('probeReadout'),
     `<div><b>|g|</b> ${fmtField(mag)}</div>` +
     `<div>${(g[0] * u).toExponential(2)}, ${(g[1] * u).toExponential(2)}, ${(g[2] * u).toExponential(2)}</div>` +
-    `<div><b>Φ</b> ${isFinite(phi) ? '−' + fmtMag(Math.abs(phi), 'J/kg') : '−∞'}</div>`;
+    `<div><b>Φ</b> ${isFinite(phi) ? sign + fmtMag(Math.abs(phi), 'J/kg') : '−∞'}</div>`);
 }
 
 // ---- legend ------------------------------------------------------------
@@ -283,15 +288,18 @@ function simStep() {
     }
   }
   const com = comOf(bodies);
-  for (const p of projs) if (P.vlen(P.vsub(p.x, com)) > view.spanU * 12) p.alive = false;   // escaped the view
+  // "Escaped" is judged against the view span AT LAUNCH (p.escapeR), not the
+  // live zoom — zooming in must not retroactively kill a wide but bound orbit.
+  for (const p of projs) if (P.vlen(P.vsub(p.x, com)) > (p.escapeR || view.spanU * 12)) p.alive = false;
   for (const p of particles) if (p.trail.length > 5000) p.trail.splice(0, p.trail.length - 5000);
   const lm = launchMode();
   if (lm !== lastLaunchMode) { lastLaunchMode = lm; refreshRateRow(); }   // switch to the other rate
   updateParticleReadout();
-  // Bodies moved → refresh the field, but only every other frame: the heatmap is
-  // expensive (per-pixel × every source), while the body overlay redraws each
-  // frame regardless, so motion stays smooth and the field keeps up closely.
-  if ((fieldSkip = (fieldSkip + 1) & 1) === 0) gridDirty = true;
+  // Bodies moved → refresh the field and force/torque tile, but only every other
+  // frame: the heatmap is expensive (per-pixel × every source), while the body
+  // overlay redraws each frame regardless, so motion stays smooth and the field
+  // keeps up closely.
+  if ((fieldSkip = (fieldSkip + 1) & 1) === 0) { gridDirty = true; forceDirty = true; }
 }
 // Perfectly inelastic impact: the projectile is absorbed by the body it hits.
 // Momentum is conserved — the body recoils to the combined centre-of-mass
@@ -326,7 +334,7 @@ function resetSim() {
   scene.sources.forEach(buildSource);                       // restore placed positions (& ring masses)
   for (const s of scene.sources) s._v = [0, 0, 0];
   setRunningUI(false);
-  document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
+  setHTML(document.getElementById('partReadout'), 'Launch a body, or press Play');
   invalidateField();
 }
 function updateParticleReadout() {
@@ -335,21 +343,21 @@ function updateParticleReadout() {
   if (p) {
     const speed = P.vlen(p.v);
     const eps = 0.5 * speed * speed + scene.potential(p.x);   // specific energy vs the placed sources
-    el.innerHTML =
+    setHTML(el,
       `<div><b>v</b> ${(speed / 1000).toFixed(2)} km/s</div>` +
       `<div><b>KE</b> ${fmtMag(0.5 * p.mass * speed * speed, 'J')}</div>` +
       `<div><b>ε</b> ${(eps >= 0 ? '+' : '−') + fmtMag(Math.abs(eps), 'J/kg')}</div>` +
-      `<div>${p.alive ? (eps < 0 ? 'bound orbit' : 'unbound (escape)') : 'captured / lost'}</div>`;
+      `<div>${p.alive ? (eps < 0 ? 'bound orbit' : 'unbound (escape)') : 'captured / lost'}</div>`);
     return;
   }
   // No projectile: report the selected body's motion during an N-body run.
   const s = scene.get(selectedId);
   if (simInited && s && s._v) {
     const speed = P.vlen(s._v);
-    el.innerHTML =
+    setHTML(el,
       `<div><b>${s.name}</b></div>` +
       `<div><b>v</b> ${(speed / 1000).toFixed(3)} km/s</div>` +
-      `<div><b>KE</b> ${fmtMag(0.5 * s.mass * speed * speed, 'J')}</div>`;
+      `<div><b>KE</b> ${fmtMag(0.5 * s.mass * speed * speed, 'J')}</div>`);
   }
 }
 
@@ -467,19 +475,23 @@ function dirArrow(vec) {
   const arr = ['→', '↗', '↑', '↖', '←', '↙', '↓', '↘'];
   return arr[((Math.round(Math.atan2(c.v, c.u) / (Math.PI / 4)) % 8) + 8) % 8];
 }
-function updateForceTile() {
+// The tile's volume integral is expensive for extended bodies, so callers only
+// mark it dirty; tick() computes it at most once per animation frame (this
+// coalesces pointermove bursts while dragging, and keeps it live during playback).
+function updateForceTile() { forceDirty = true; requestFrame(); }
+function computeForceTile() {
   const el = document.getElementById('forceReadout');
   const s = scene.get(selectedId);
-  if (!s) { el.textContent = 'Select an object'; return; }
+  if (!s) { setHTML(el, 'Select an object'); return; }
   const ft = scene.forceTorque(s);
-  if (!ft || !ft.hasExternal) { el.innerHTML = '<div>Net force needs</div><div class="hint">a second mass</div>'; return; }
-  if (!ft.valid) { el.innerHTML = '<div>Bodies overlap</div><div class="hint">separate to read force</div>'; return; }
+  if (!ft || !ft.hasExternal) { setHTML(el, '<div>Net force needs</div><div class="hint">a second mass</div>'); return; }
+  if (!ft.valid) { setHTML(el, '<div>Bodies overlap</div><div class="hint">separate to read force</div>'); return; }
   const Fm = P.vlen(ft.F), tauM = P.vlen(ft.tau);
   const fZero = ft.Fabs > 0 && Fm / ft.Fabs < 1e-7;
   const tZero = ft.tauAbs > 0 && tauM / ft.tauAbs < 1e-7;
-  el.innerHTML =
+  setHTML(el,
     `<div><b>F</b> ${fZero ? '≈ 0 N' : fmtMag(Fm, 'N') + ' ' + dirArrow(ft.F)}</div>` +
-    `<div><b>τ</b> ${tZero ? '≈ 0 N·m' : fmtMag(tauM, 'N·m')}</div>`;
+    `<div><b>τ</b> ${tZero ? '≈ 0 N·m' : fmtMag(tauM, 'N·m')}</div>`);
 }
 
 function buildList() {
@@ -665,12 +677,14 @@ function endPointer(e) {
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 
-// keyboard: arrow keys nudge the selected object, Delete/Backspace removes it
+// keyboard: arrow keys nudge the selected object (or, with nothing selected,
+// the field probe — a pointer-free way to read g), Delete/Backspace removes it.
 window.addEventListener('keydown', (e) => {
   const t = e.target;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
-  const s = scene.get(selectedId); if (!s) return;
-  if (e.key === 'Delete' || e.key === 'Backspace') {
+  // BUTTON included: Backspace right after clicking Play must not delete a body.
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON')) return;
+  const s = scene.get(selectedId);
+  if (s && (e.key === 'Delete' || e.key === 'Backspace')) {
     scene.remove(s.id); selectedId = null; buildList(); buildInspector(); invalidateField();
     e.preventDefault(); return;
   }
@@ -678,15 +692,20 @@ window.addEventListener('keydown', (e) => {
   const move = { ArrowLeft: [view.uAxis, -step], ArrowRight: [view.uAxis, step],
                  ArrowUp: [view.vAxis, step], ArrowDown: [view.vAxis, -step] }[e.key];
   if (!move) return;
-  s.pos[move[0]] += move[1];
-  buildSource(s); buildInspector(); invalidateField();
+  if (s) {
+    s.pos[move[0]] += move[1];
+    buildSource(s); buildInspector(); invalidateField();
+  } else if (probe) {
+    probe[move[0]] += move[1] * 1000;              // km -> m
+    requestDraw();
+  } else return;
   e.preventDefault();
 });
 
 document.getElementById('clearAll').addEventListener('click', () => {
   scene.sources = []; selectedId = null; particles.length = 0; simRunning = false; simInited = false;
   setRunningUI(false);
-  document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
+  setHTML(document.getElementById('partReadout'), 'Launch a body, or press Play');
   buildList(); buildInspector(); invalidateField();
 });
 
@@ -713,24 +732,28 @@ function calibrateTime() {
 }
 function launchParticle() {
   if (!simInited) initSim();
-  const speed = (Math.abs(parseFloat(document.getElementById('pSpeed').value)) || 5) * 1000;   // km/s -> m/s
-  const mass = Math.max(0, parseFloat(document.getElementById('pMass').value)) || 1;            // kg
+  const speed = (Math.abs(parseFloat(pSpeedNum.value)) || 5) * 1000;   // km/s -> m/s
+  const mv = parseFloat(document.getElementById('pMass').value);
+  const mass = isNaN(mv) ? 1e21 : Math.max(0, mv);   // kg; 0 = a pure test mass
   // Launch from the field-probe pin, along the amber aim arrow (which stays
   // where the user turned it). Falls back to the view edge when unset.
   const pos = probe ? probe.slice() : view.worldFromUV(view.center[0] - view.spanU * 0.42, view.center[1]);
   const dir = [0, 0, 0]; dir[view.uAxis] = aimDir[0]; dir[view.vAxis] = aimDir[1];
   const vel = dir.map((c) => c * speed);
-  particles.push({ x: pos, v: vel, mass, rad: projRadius(mass), trail: [pos.slice()], color: '#ffd27a', alive: true });
+  particles.push({
+    x: pos, v: vel, mass, rad: projRadius(mass), trail: [pos.slice()], color: '#ffd27a', alive: true,
+    escapeR: view.spanU * 12,          // "escaped" threshold frozen at launch-time zoom
+  });
   startSim();
 }
 document.getElementById('launch').addEventListener('click', launchParticle);
 document.getElementById('clearParts').addEventListener('click', resetSim);
-// Launch-speed bar: keep the slider and the number box in sync.
-{
-  const rng = document.getElementById('pSpeedRange'), num = document.getElementById('pSpeed');
-  rng.addEventListener('input', () => { num.value = rng.value; });
-  num.addEventListener('input', () => { const n = parseFloat(num.value); if (!isNaN(n)) rng.value = n; });
-}
+// Launch-speed bar: keep the slider and the number box in sync. setLaunchSpeed
+// is the programmatic entry point (presets) — it updates both controls.
+const pSpeedNum = document.getElementById('pSpeed'), pSpeedRange = document.getElementById('pSpeedRange');
+function setLaunchSpeed(v) { pSpeedNum.value = v; pSpeedRange.value = v; }
+pSpeedRange.addEventListener('input', () => { pSpeedNum.value = pSpeedRange.value; });
+pSpeedNum.addEventListener('input', () => { const n = parseFloat(pSpeedNum.value); if (!isNaN(n)) pSpeedRange.value = n; });
 document.getElementById('pauseSim').addEventListener('click', () => {
   if (simRunning) { simRunning = false; setRunningUI(false); }
   else { startSim(); }
@@ -792,7 +815,7 @@ const presets = {
     const m = defaultSource('sphere'); m.name = 'Moon'; m.mass = 7e22; m.dia = 4000; m.pos = [90000, 0, 0];
     m.vel = [0, 0, 2.12]; p.vel = [0, 0, -2.12 * 7e22 / 6e24];   // km/s, momentum-balanced
     scene.add(p); scene.add(m); view.spanU = 3e8;
-    document.getElementById('pSpeed').value = 2.1;
+    setLaunchSpeed(2.1);
   },
   'Spherical shell (no field inside)': () => {
     scene.sources = [];
@@ -817,7 +840,7 @@ const presets = {
     scene.sources = [];
     const p = defaultSource('sphere'); p.name = 'Planet'; p.mass = 8e24; p.dia = 12000; p.pos = [10000, -18000, 0];
     scene.add(p); view.spanU = 1.6e8;
-    document.getElementById('pSpeed').value = 6;
+    setLaunchSpeed(6);
   },
 };
 const presetSel = document.getElementById('presetSel');
@@ -827,7 +850,7 @@ presetSel.addEventListener('change', () => {
   if (!presets[presetSel.value]) return;
   particles.length = 0; simRunning = false; simInited = false;
   setRunningUI(false);
-  document.getElementById('partReadout').textContent = 'Launch a body, or press Play';
+  setHTML(document.getElementById('partReadout'), 'Launch a body, or press Play');
   const wantSel = presets[presetSel.value]();
   scene.rebuild();
   selectedId = wantSel || (scene.sources[0] ? scene.sources[0].id : null);

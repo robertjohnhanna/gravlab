@@ -114,36 +114,42 @@ export function buildSource(s) {
 }
 
 // Field of a single source at world point Q -> { g:[3], phi:number }.
-export function sourceField(s, Q) {
+// Pass wantPhi = false to skip the potential — the field-only callers (heatmap
+// gradient sampling, the force/torque volume integral) are the hot paths, and
+// for ring stacks Φ costs a second elliptic-integral pass per ring.
+export function sourceField(s, Q, wantPhi = true) {
   if (!s.visible) return { g: [0, 0, 0], phi: 0 };
   let g = [0, 0, 0], phi = 0;
 
   if (s.type === 'point') {
-    g = P.pointField(s.mass, s._origin, Q); phi = P.pointPot(s.mass, s._origin, Q);
+    g = P.pointField(s.mass, s._origin, Q);
+    if (wantPhi) phi = P.pointPot(s.mass, s._origin, Q);
   } else if (s.type === 'sphere') {
     const Rr = km(s.dia) / 2;
-    g = P.sphereField(s.mass, Rr, s._origin, Q); phi = P.spherePot(s.mass, Rr, s._origin, Q);
+    g = P.sphereField(s.mass, Rr, s._origin, Q);
+    if (wantPhi) phi = P.spherePot(s.mass, Rr, s._origin, Q);
   } else if (s.type === 'shell') {
     const Rr = km(s.dia) / 2;
-    g = P.shellField(s.mass, Rr, s._origin, Q); phi = P.shellPot(s.mass, Rr, s._origin, Q);
+    g = P.shellField(s.mass, Rr, s._origin, Q);
+    if (wantPhi) phi = P.shellPot(s.mass, Rr, s._origin, Q);
   } else if (s.type === 'rod') {
     const qLoc = P.matTVec(s._R, P.vsub(Q, s._origin));
     const L = km(s.len), lam = s.mass / L;
     g = P.matVec(s._R, P.rodField(lam, L, qLoc[0], qLoc[1], qLoc[2]));
-    phi = P.rodPot(lam, L, qLoc[0], qLoc[1], qLoc[2]);
+    if (wantPhi) phi = P.rodPot(lam, L, qLoc[0], qLoc[1], qLoc[2]);
   } else if (s.type === 'box') {
     const qLoc = P.matTVec(s._R, P.vsub(Q, s._origin));
     const half = [km(s.size[0]) / 2, km(s.size[1]) / 2, km(s.size[2]) / 2];
     const rhod = s.mass / (8 * half[0] * half[1] * half[2]);
     g = P.matVec(s._R, P.cuboidField(qLoc, half, rhod));
-    phi = P.cuboidPot(qLoc, half, rhod);
+    if (wantPhi) phi = P.cuboidPot(qLoc, half, rhod);
   } else if (s._rings) {
     const q = P.matTVec(s._R, P.vsub(Q, s._origin));
     let gx = 0, gy = 0, gz = 0;
     for (const r of s._rings) {
       const gl = P.ringField(r.a, r.m, q[0], q[1], q[2] - r.z);
       gx += gl[0]; gy += gl[1]; gz += gl[2];
-      phi += P.ringPot(r.a, r.m, q[0], q[1], q[2] - r.z);
+      if (wantPhi) phi += P.ringPot(r.a, r.m, q[0], q[1], q[2] - r.z);
     }
     g = P.matVec(s._R, [gx, gy, gz]);
   }
@@ -167,7 +173,7 @@ export class Scene {
   // Total gravitational field g [m/s²] at world point Q.
   g(Q) {
     let a = [0, 0, 0];
-    for (const s of this.sources) a = P.vadd(a, sourceField(s, Q).g);
+    for (const s of this.sources) a = P.vadd(a, sourceField(s, Q, false).g);
     return a;
   }
   // Total gravitational potential Φ [J/kg] at world point Q.
@@ -175,6 +181,13 @@ export class Scene {
     let p = 0;
     for (const s of this.sources) p += sourceField(s, Q).phi;
     return p;
+  }
+  // Both g and Φ in one pass over the sources — use this where both are needed
+  // (grid sampling, probe): separate g() + potential() calls double the work.
+  sample(Q) {
+    let a = [0, 0, 0], p = 0;
+    for (const s of this.sources) { const f = sourceField(s, Q); a = P.vadd(a, f.g); p += f.phi; }
+    return { g: a, phi: p };
   }
   // Exact net force [N] and torque [N·m] on a source from all *other* sources.
   forceTorque(target) { return forceOn(this, target); }
@@ -242,7 +255,7 @@ export function forceOn(scene, target) {
   if (!others.length) return { F: [0, 0, 0], tau: [0, 0, 0], valid: true, hasExternal: false };
   for (const o of others) if (bodiesOverlap(target, o)) return { F: [0, 0, 0], tau: [0, 0, 0], valid: false, hasExternal: true };
   const c = target._origin, R = target._R;
-  const gExt = (q) => { let a = [0, 0, 0]; for (const s of others) a = P.vadd(a, sourceField(s, q).g); return a; };
+  const gExt = (q) => { let a = [0, 0, 0]; for (const s of others) a = P.vadd(a, sourceField(s, q, false).g); return a; };
   let F = [0, 0, 0], tau = [0, 0, 0], valid = true, Fabs = 0, tauAbs = 0;
   const local = (loc) => P.vadd(c, P.matVec(R, loc));          // local (m) -> world
   const inOther = (q) => { for (const s of others) if (bodyContains(s, q)) return true; return false; };

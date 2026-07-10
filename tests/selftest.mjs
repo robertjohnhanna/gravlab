@@ -100,6 +100,11 @@ console.log('\n== Uniform ring (elliptic integrals) ==');
   }
   checkGradient('ring g = −∇Φ', (p) => ringField(a, M, ...p), (p) => ringPot(a, M, ...p),
     [[5e6, 0, 3e6], [1.4e7, 2e6, -4e6], [3e6, 3e6, 8e6]], 2e-3);
+  // Just off the axis the transverse field must vanish ∝ ρ — the naive dK/dm
+  // closed form loses all significance there (E−K is pure roundoff at m→0).
+  const gnx = ringField(a, M, 1e-6, 0, 5e6);
+  check('ring transverse field ∝ ρ near axis (no cancellation noise)',
+    Math.abs(gnx[0]) < 1e-8 * Math.abs(gnx[2]), `gx/gz=${(gnx[0] / gnx[2]).toExponential(2)}`);
 }
 
 console.log('\n== Uniform rod (line mass) ==');
@@ -121,6 +126,15 @@ console.log('\n== Uniform rod (line mass) ==');
   }
   checkGradient('rod g = −∇Φ', (p) => rodField(lam, L, ...p), (p) => rodPot(lam, L, ...p),
     [[3e6, 0, 1e7], [8e6, 1e6, -1.5e7], [2e6, 2e6, 3e7]], 2e-3);
+  // On the axis beyond the ends the naive ln[(z+L/2+rA)/(z−L/2+rB)] form
+  // cancels to 0/0 and flips the sign of Φ; the stable form must not.
+  const bruteP = (x, y, z, N = 40000) => { let p = 0; const dm = lam * L / N; for (let i = 0; i < N; i++) { const zp = -L / 2 + L * (i + 0.5) / N; p += -G * dm / Math.hypot(x, y, z - zp); } return p; };
+  for (const z of [-3e7, 3e7]) {
+    const pOn = rodPot(lam, L, 0, 0, z);
+    check(`rod Φ finite & negative on axis beyond end (z=${z})`, isFinite(pOn) && pOn < 0, pOn);
+    check(`rod Φ on-axis matches integration (z=${z})`, rel(pOn, bruteP(0, 0, z)) < 1e-3, `${pOn} vs ${bruteP(0, 0, z)}`);
+    check(`rod Φ continuous across the axis (z=${z})`, rel(pOn, rodPot(lam, L, 1, 0, z)) < 1e-6, '');
+  }
 }
 
 console.log('\n== Uniform box (Nagy closed form) ==');
@@ -140,6 +154,13 @@ console.log('\n== Uniform box (Nagy closed form) ==');
   check('∇·g ≈ 0 outside box', maxDiv / scale < 1e-4, `div/ref=${(maxDiv / scale).toExponential(2)}`);
   check('∇×g ≈ 0 outside box', maxCurl / scale < 1e-4, `curl/ref=${(maxCurl / scale).toExponential(2)}`);
   checkGradient('box g = −∇Φ', fn, (p) => cuboidPot(p, half, rhod), pts, 1e-3);
+  // On a line extending a box edge two corner terms hit 0·ln(0): the true limit
+  // is 0, but unguarded IEEE arithmetic yields NaN and poisons the whole sum.
+  const ge = fn([half[0], half[1], -8e6]);
+  const gnear = fn([half[0] + 0.5, half[1] + 0.5, -8e6]);
+  check('box field finite on edge-extension line', ge.every(isFinite), ge.toString());
+  check('box edge-line field matches neighbour', vlen(vsub(ge, gnear)) / vlen(gnear) < 1e-3, '');
+  check('box Φ finite on edge-extension line', isFinite(cuboidPot([half[0], half[1], -8e6], half, rhod)), '');
 }
 
 console.log('\n== Disc & cylinder (ring stacks) ==');
@@ -162,6 +183,12 @@ console.log('\n== Disc & cylinder (ring stacks) ==');
   const scC = new Scene(); scC.add(cyl);
   const gf = scC.g([4e8, 0, 0]);
   check('cylinder far field → point mass', rel(vlen(gf), G * cyl.mass / (4e8) ** 2) < 5e-3, `${vlen(gf)} vs ${G * cyl.mass / (4e8) ** 2}`);
+  // The single-pass sample() and the field-only fast path must agree exactly
+  // with the separate g()/potential() calls.
+  const Q = [3e7, 1e7, 5e6];
+  const smp = scC.sample(Q);
+  check('Scene.sample g equals Scene.g', vlen(vsub(smp.g, scC.g(Q))) === 0, '');
+  check('Scene.sample Φ equals Scene.potential', smp.phi === scC.potential(Q), '');
 }
 
 console.log('\n== Exact force / torque ==');

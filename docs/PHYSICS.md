@@ -76,11 +76,14 @@ radius ρ with end-distances r_A, r_B:
 ```
 g_ρ = −(Gλ/ρ)[(z+L/2)/r_A − (z−L/2)/r_B]
 g_z =  Gλ[1/r_A − 1/r_B]
-Φ   = −Gλ ln[(z+L/2 + r_A)/(z−L/2 + r_B)]
+Φ   = −Gλ ln[(r_A + r_B + L)/(r_A + r_B − L)]
 ```
 
-Verified against the infinite-rod limit `g_ρ → −2Gλ/ρ`, against direct
-integration, and by **g = −∇Φ**.
+(The equivalent form `ln[(z+L/2+r_A)/(z−L/2+r_B)]` is avoided: it cancels
+catastrophically on the axis beyond the rod's ends, where the symmetric form
+stays well-conditioned.) Verified against the infinite-rod limit
+`g_ρ → −2Gλ/ρ`, against direct integration — including on-axis beyond the
+ends — and by **g = −∇Φ**.
 
 ## Uniform rectangular prism (box) — Nagy's closed form
 

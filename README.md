@@ -36,7 +36,7 @@ checked against an independent analytical limit:
 Run the checks yourself:
 
 ```bash
-npm test        # 64 physics assertions, all from first principles
+npm test        # 76 physics assertions, all from first principles
 ```
 
 Full derivations, formulas and references: **[docs/PHYSICS.md](docs/PHYSICS.md)**.

@@ -56,6 +56,7 @@ export class Renderer {
     this.grid = null;
     this.heat = null;               // offscreen grid-resolution heatmap
     this.field = document.createElement('canvas'); // offscreen full-res field layer
+    this.dpr = 1;                   // device-pixel ratio for the field layer (set by resize)
     this.opts = { heatmap: true, lines: false, equipotential: false, vectors: true, grid: true, gridStep: 34 };
     this.range = { min: -6, max: 0 };
   }
@@ -76,11 +77,12 @@ export class Renderer {
         const sx = (i + 0.5) / cols * v.W;
         const sy = (j + 0.5) / rows * v.H;
         const w = v.toWorld(sx, sy);
-        const g = this.scene.g(w);
+        const f = this.scene.sample(w);        // g and Φ in one pass over the sources
+        const g = f.g;
         const m = P.vlen(g);
         const idx = j * cols + i;
         mag[idx] = m; gu[idx] = g[v.uAxis]; gv[idx] = g[v.vAxis];
-        phi[idx] = this.scene.potential(w);
+        phi[idx] = f.phi;
         if (m > 0) { const l = Math.log10(m); if (l < lo) lo = l; if (l > hi) hi = l; }
       }
     }
@@ -114,10 +116,14 @@ export class Renderer {
   // Bilinear in-plane field from the cached grid, in world (u,v) coordinates.
   sampleField(u, v) {
     const g = this.grid, view = this.view;
-    const fx = (view.W / 2 + (u - view.center[0]) * view.scale) / view.W * g.cols - 0.5;
-    const fy = (view.H / 2 - (v - view.center[1]) * view.scale) / view.H * g.rows - 0.5;
-    const x0 = Math.floor(fx), y0 = Math.floor(fy);
-    if (x0 < 0 || y0 < 0 || x0 >= g.cols - 1 || y0 >= g.rows - 1) return null;
+    let fx = (view.W / 2 + (u - view.center[0]) * view.scale) / view.W * g.cols - 0.5;
+    let fy = (view.H / 2 - (v - view.center[1]) * view.scale) / view.H * g.rows - 0.5;
+    if (fx < -0.5 || fy < -0.5 || fx > g.cols - 0.5 || fy > g.rows - 0.5) return null;
+    // Clamp the outer half-cell onto the edge cells so vectors/lines reach the
+    // viewport border instead of leaving a gap along the right/bottom edges.
+    fx = Math.min(g.cols - 1, Math.max(0, fx));
+    fy = Math.min(g.rows - 1, Math.max(0, fy));
+    const x0 = Math.min(g.cols - 2, Math.floor(fx)), y0 = Math.min(g.rows - 2, Math.floor(fy));
     const tx = fx - x0, ty = fy - y0;
     const at = (xx, yy, arr) => arr[yy * g.cols + xx];
     const lerp2 = (arr) =>
@@ -130,8 +136,11 @@ export class Renderer {
   renderField() {
     const v = this.view;
     const f = this.field;
-    f.width = v.W; f.height = v.H;
+    // Render at device resolution so grid lines / vectors / contours stay crisp
+    // on high-DPR displays; blitField scales it back to CSS pixels.
+    f.width = Math.round(v.W * this.dpr); f.height = Math.round(v.H * this.dpr);
     const ctx = f.getContext('2d');
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, v.W, v.H);
     if (this.opts.heatmap && this.heat) {
       ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 0.95;

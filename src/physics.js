@@ -156,7 +156,10 @@ export function ringField(a, M, x, y, z) {
   let grho = 0;
   if (rho > 1e-12) {
     const om = al2 / D2;                          // 1 − m
-    const Kp = (E - om * K) / (2 * m * om);       // dK/dm
+    // dK/dm: the closed form (E − (1−m)K)/(2m(1−m)) cancels catastrophically
+    // as m → 0 (near the axis, E−K is pure roundoff); use the series there.
+    const Kp = m < 1e-4 ? (Math.PI / 8) * (1 + 1.125 * m)
+                        : (E - om * K) / (2 * m * om);
     const m_u = 4 * a * (a * a + z * z - rho * rho) / (D2 * D2);
     const D_u = (rho + a) / D;
     grho = (2 * G * M / Math.PI) * (Kp * m_u / D - K * D_u / D2);
@@ -183,7 +186,7 @@ export function ringPot(a, M, x, y, z) {
 //
 //   g_ρ = −(Gλ/ρ) [ (z+L/2)/r_A − (z−L/2)/r_B ]
 //   g_z =  Gλ [ 1/r_A − 1/r_B ]
-//   Φ   = −Gλ ln[ (z+L/2 + r_A) / (z−L/2 + r_B) ]
+//   Φ   = −Gλ ln[ (r_A + r_B + L) / (r_A + r_B − L) ]
 //
 // (r_A is the distance to the −L/2 end, r_B to the +L/2 end.)  The infinite-rod
 // limit is g_ρ → −2Gλ/ρ.
@@ -203,8 +206,11 @@ export function rodPot(lam, L, x, y, z) {
   const rho = Math.hypot(x, y);
   const rA = Math.hypot(rho, z + L / 2);
   const rB = Math.hypot(rho, z - L / 2);
-  const num = (z + L / 2) + rA, den = (z - L / 2) + rB;
-  return -G * lam * Math.log((num / den) || 1e-300);
+  // The algebraically-equal ln[(z+L/2+rA)/(z−L/2+rB)] cancels catastrophically
+  // on the axis beyond the ends (0/0 → wrong sign); this symmetric form is
+  // well-conditioned everywhere off the rod itself.
+  const s = rA + rB;
+  return -G * lam * Math.log((s + L) / Math.max(s - L, 1e-30));
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +223,9 @@ export function rodPot(lam, L, x, y, z) {
 //   g_x = G ρ_d Σ (−1)^{i+j+k} [ Y ln(Z+r) + Z ln(Y+r) − X·atan2(YZ, Xr) ]
 // and cyclic permutations for g_y, g_z.  Exact everywhere outside the body.
 // ---------------------------------------------------------------------------
+// ln(t) clamped away from 0: on a line extending a box edge two corner terms hit
+// 0·ln(0) — the true limit is 0, but IEEE gives 0·(−∞) = NaN without the clamp.
+const lnc = (t) => Math.log(Math.max(t, 1e-30));
 export function cuboidField(p, half, rhod) {
   const X = [p[0] + half[0], p[0] - half[0]];
   const Y = [p[1] + half[1], p[1] - half[1]];
@@ -226,9 +235,9 @@ export function cuboidField(p, half, rhod) {
     const s = ((i + j + k) & 1) ? -1 : 1;
     const x = X[i], y = Y[j], z = Z[k];
     const r = Math.hypot(x, y, z) || 1e-30;
-    gx += s * (y * Math.log(z + r) + z * Math.log(y + r) - x * Math.atan2(y * z, x * r));
-    gy += s * (z * Math.log(x + r) + x * Math.log(z + r) - y * Math.atan2(z * x, y * r));
-    gz += s * (x * Math.log(y + r) + y * Math.log(x + r) - z * Math.atan2(x * y, z * r));
+    gx += s * (y * lnc(z + r) + z * lnc(y + r) - x * Math.atan2(y * z, x * r));
+    gy += s * (z * lnc(x + r) + x * lnc(z + r) - y * Math.atan2(z * x, y * r));
+    gz += s * (x * lnc(y + r) + y * lnc(x + r) - z * Math.atan2(x * y, z * r));
   }
   const kf = G * rhod;
   return [kf * gx, kf * gy, kf * gz];
@@ -243,7 +252,7 @@ export function cuboidPot(p, half, rhod) {
     const x = X[i], y = Y[j], z = Z[k];
     const r = Math.hypot(x, y, z) || 1e-30;
     s0 += s * (
-      x * y * Math.log(z + r) + y * z * Math.log(x + r) + z * x * Math.log(y + r)
+      x * y * lnc(z + r) + y * z * lnc(x + r) + z * x * lnc(y + r)
       - 0.5 * x * x * Math.atan2(y * z, x * r)
       - 0.5 * y * y * Math.atan2(z * x, y * r)
       - 0.5 * z * z * Math.atan2(x * y, z * r)
